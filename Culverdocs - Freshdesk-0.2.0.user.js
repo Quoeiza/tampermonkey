@@ -7,8 +7,8 @@
 // @match        https://culverdocs.freshdesk.com/a/tickets/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
 // @grant        none
-// @updateURL    https://github.com/Quoeiza/tampermonkey/raw/refs/heads/main/Culverdocs%20-%20Freshdesk-0.2.0.user.js
-// @downloadURL  https://github.com/Quoeiza/tampermonkey/raw/refs/heads/main/Culverdocs%20-%20Freshdesk-0.2.0.user.js
+// @updateURL    https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs%20-%20Freshdesk-0.2.1.user.js
+// @downloadURL  https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs%20-%20Freshdesk-0.2.1.user.js
 // ==/UserScript==
 
 (function () {
@@ -375,7 +375,7 @@
     margin-right: 10px;
 }
 
-#css-style-select-btn {
+.fd-style-dropdown-btn {
     font-size: 13px;
     font-weight: 500;
     background: #f8f9fa;
@@ -732,7 +732,7 @@ td:has([data-test-id="statusTranslatedLabel_test_label"]) {
 }
 
 @media (max-width: 1120px) {
-.tickets__list .list-content--info, #css-style-select-btn  {
+.tickets__list .list-content--info, .fd-style-dropdown-btn  {
     display: none;
   }
 }
@@ -1270,7 +1270,7 @@ function highlightUserNameTable(row) {
     };
 
 function setupDropdowns() {
-    if (document.getElementById('css-style-select-btn')) return;
+    if (document.querySelector('.fd-style-dropdown')) return; // Already exists
     const target = [...document.querySelectorAll('.dropdown-layout.ember-basic-dropdown')]
         .find(el => /Layout:/i.test(el.textContent));
     if (!target) return;
@@ -1280,7 +1280,7 @@ function setupDropdowns() {
     highlightDropdown.className = 'fd-style-dropdown';
 
     const highlightBtn = document.createElement('button');
-    highlightBtn.id = 'css-style-select-btn';
+    highlightBtn.id = 'highlight-select-btn';
     highlightBtn.type = 'button';
     highlightBtn.textContent = 'Highlights: ' + highlightModeNames[highlightMode];
     highlightBtn.className = 'fd-style-dropdown-btn';
@@ -1307,6 +1307,11 @@ function setupDropdowns() {
 
     highlightBtn.onclick = (e) => {
         e.stopPropagation();
+        document.querySelectorAll('.fd-style-dropdown-content').forEach(content => {
+            if (content !== highlightContent) {
+                content.classList.remove('show-dropdown');
+            }
+        });
         highlightContent.classList.toggle('show-dropdown');
     };
 
@@ -1318,9 +1323,10 @@ function setupDropdowns() {
     styleDropdown.className = 'fd-style-dropdown';
 
     const styleBtn = document.createElement('button');
-    styleBtn.id = 'css-style-select-btn';
+    styleBtn.id = 'style-select-btn';
     styleBtn.type = 'button';
     styleBtn.textContent = 'Style: ' + modeNames[styleMode];
+    styleBtn.className = 'fd-style-dropdown-btn';
 
     const styleContent = document.createElement('div');
     styleContent.className = 'fd-style-dropdown-content';
@@ -1344,6 +1350,11 @@ function setupDropdowns() {
 
     styleBtn.onclick = (e) => {
         e.stopPropagation();
+        document.querySelectorAll('.fd-style-dropdown-content').forEach(content => {
+            if (content !== styleContent) {
+                content.classList.remove('show-dropdown');
+            }
+        });
         styleContent.classList.toggle('show-dropdown');
     };
 
@@ -1354,15 +1365,12 @@ function setupDropdowns() {
     target.parentNode.insertBefore(highlightDropdown, target);
     target.parentNode.insertBefore(styleDropdown, target);
 
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('#css-style-select-btn') && !event.target.matches('#css-style-select-btn')) {
-            const dropdowns = document.getElementsByClassName("fd-style-dropdown-content");
-            for (let i = 0; i < dropdowns.length; i++) {
-                const openDropdown = dropdowns[i];
-                if (openDropdown.classList.contains('show-dropdown')) {
-                    openDropdown.classList.remove('show-dropdown');
-                }
-            }
+    // Close dropdowns when clicking elsewhere
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.fd-style-dropdown')) {
+            document.querySelectorAll('.fd-style-dropdown-content').forEach(dropdown => {
+                dropdown.classList.remove('show-dropdown');
+            });
         }
     });
 }
