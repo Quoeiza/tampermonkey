@@ -7,8 +7,8 @@
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs%20-%20Freshdesk-0.2.1.user.js
-// @downloadURL  https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs%20-%20Freshdesk-0.2.1.user.js
+// @updateURL    https://raw.githubusercontent.com/Quoeiza/tampermonkey/raw/refs/heads/main/Culverdocs%20-%20Freshdesk.user.js
+// @downloadURL  https://raw.githubusercontent.com/Quoeiza/tampermonkey/raw/refs/heads/main/Culverdocs%20-%20Freshdesk.user.js
 // ==/UserScript==
 
 (function () {
