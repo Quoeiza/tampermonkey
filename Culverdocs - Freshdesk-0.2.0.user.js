@@ -4,7 +4,7 @@
 // @version      0.2.0
 // @description  Quality-of-life improvements for displaying tickets on the platform, highlighting priority tickets more clearly.
 // @author       Lawrence Murrell
-// @match        https://culverdocs.freshdesk.com/a/tickets/*
+// @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs%20-%20Freshdesk-0.2.1.user.js
