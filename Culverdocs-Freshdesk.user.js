@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      0.2.0
+// @version      0.2.1
 // @description  Quality-of-life improvements for displaying tickets on the platform, highlighting priority tickets more clearly.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -581,7 +581,7 @@ td:has([data-test-id="statusTranslatedLabel_test_label"]) {
 }
 
 /* Development environment indicator */
-.list-content[data-esc="dev"] .wordbreak-fix::before {
+.list-content[data-esc="l2"] .wordbreak-fix::before {
     content: '🛠️';
     font-size: 14px;
     position: relative;
@@ -591,7 +591,7 @@ td:has([data-test-id="statusTranslatedLabel_test_label"]) {
 }
 
 /* Support environment indicator */
-.list-content[data-esc="sup"] .wordbreak-fix::before {
+.list-content[data-esc="l1"] .wordbreak-fix::before {
     content: '🔔';
     font-size: 14px;
     position: relative;
@@ -1071,11 +1071,11 @@ function highlightUserName(parentElement) {
 
             mainContent.querySelectorAll('.esc-icon').forEach(e=>e.remove());
 
-            const tags=[...mainContent.querySelectorAll('span.tag, span[class^="tag--"], .list-item')]
-                .map(el=>el.textContent.trim());
-            if(tags.includes('DEV-ESC'))      mainContent.setAttribute('data-esc','dev');
-            else if(tags.includes('SUP-ESC')) mainContent.setAttribute('data-esc','sup');
-            else                              mainContent.removeAttribute('data-esc');
+const tags=[...mainContent.querySelectorAll('span.tag, span[class^="tag--"], .list-item')]
+    .map(el=>el.textContent.trim());
+if(tags.includes('L2-ESC'))      mainContent.setAttribute('data-esc','l2');
+else if(tags.includes('L1-ESC')) mainContent.setAttribute('data-esc','l1');
+else                             mainContent.removeAttribute('data-esc');
 
             mainContent.querySelectorAll('.ticket-tag-wrap, .status-tag-wrap, .ticket-tag-toprow')
                 .forEach(el=>el.style.display='none');
@@ -1120,17 +1120,17 @@ function applyTableColours(){
         const subjectCell = row.querySelector('td a[data-test-id^="ticket-subject-link"]')?.closest('td') ||
                            row.querySelector('td .wordbreak-fix')?.closest('td');
 
-        if(subjectCell){
-            const icon = document.createElement('span');
-            icon.className='esc-icon';
-            if(tags.includes('DEV-ESC')) {
-                icon.textContent='🛠️';
-                subjectCell.insertBefore(icon,subjectCell.firstChild);
-            } else if(tags.includes('SUP-ESC')) {
-                icon.textContent='🔔';
-                subjectCell.insertBefore(icon,subjectCell.firstChild);
-            }
-        }
+if(subjectCell){
+    const icon = document.createElement('span');
+    icon.className='esc-icon';
+    if(tags.includes('L2-ESC')) {
+        icon.textContent='🛠️';
+        subjectCell.insertBefore(icon,subjectCell.firstChild);
+    } else if(tags.includes('L1-ESC')) {
+        icon.textContent='🔔';
+        subjectCell.insertBefore(icon,subjectCell.firstChild);
+    }
+}
 
         // Highlight company name in table layout
         highlightCompanyNameTable(row);
