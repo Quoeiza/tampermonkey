@@ -12,18 +12,33 @@
 // ==/UserScript==
 
 (function () {
-'use strict';
+    'use strict';
 
-const STORAGE_KEY = 'fd_card_style_mode';
-const STYLE_NAMES = ['Gradient','Fill','None'];
-const storedMode  = localStorage.getItem(STORAGE_KEY);
-let   styleMode   = storedMode == null ? 2 : parseInt(storedMode,10);
-if(![0,1,2].includes(styleMode)){
-    styleMode = 2;
-    localStorage.setItem(STORAGE_KEY,'2');
-}
+    // ============================
+    // Configuration and state
+    // ============================
+    const STORAGE_KEY = 'fd_card_style_mode';
+    const STYLE_NAMES = ['Gradient','Fill','None'];
+    const storedMode  = localStorage.getItem(STORAGE_KEY);
+    let styleMode     = storedMode == null ? 2 : parseInt(storedMode,10);
 
-const css = `
+    if (![0,1,2].includes(styleMode)) {
+        styleMode = 2;
+        localStorage.setItem(STORAGE_KEY,'2');
+    }
+
+    const statusColours = {
+        Open: '#ffe4e1',
+        Pending: '#fff6cc',
+        'On Hold': '#e8f4fc',
+        Resolved: '#ddfddf',
+        Closed: '#ddfddf'
+    };
+
+    // ============================
+    // CSS injection
+    // ============================
+    const css = `
 .col-md-12{padding-left:0;padding-right:0}
 .left-nav-mfe-wrapper,.left-nav-mfe{width:240px!important}
 .fd-style-dropdown{position:relative;display:inline-block;vertical-align:middle;margin-right:10px}
@@ -71,164 +86,191 @@ const css = `
 }
 `;
 
-const styleElement = document.createElement('style');
-styleElement.textContent = css;
-document.head.appendChild(styleElement);
+    const styleElement = document.createElement('style');
+    styleElement.textContent = css;
+    document.head.appendChild(styleElement);
 
-const statusColours = {
-    Open:'#ffe4e1',
-    Pending:'#fff6cc',
-    'On Hold':'#e8f4fc',
-    Resolved:'#ddfddf',
-    Closed:'#ddfddf'
-};
-
-function extractDueInfo(text){
-    const lower = text.toLowerCase();
-    const overdueMatch = lower.match(/overdue.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
-    if(overdueMatch) return {type:'overdue',value:+overdueMatch[1],unit:overdueMatch[2]};
-    const dueMatch = lower.match(/due.*?in.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
-    return dueMatch ? {type:'due',value:+dueMatch[1],unit:dueMatch[2]} : null;
-}
-
-function applyEscState(rootElement,tags){
-    const infoElement = rootElement.querySelector('.ticket-info');
-    if(!infoElement) return;
-    infoElement.removeAttribute('data-esc');
-    const hasL2 = tags.includes('L2-ESC');
-    const hasL1 = tags.includes('L1-ESC');
-    if(hasL1 && hasL2) infoElement.setAttribute('data-esc','L1L2');
-    else if(hasL1) infoElement.setAttribute('data-esc','L1');
-    else if(hasL2) infoElement.setAttribute('data-esc','L2');
-}
-
-function isUrgent(fullText,dueInfo,tagsText){
-    if(!dueInfo && tagsText.indexOf('new') < 0) return false;
-
-    let urgent = false;
-    if(dueInfo){
-        if(dueInfo.type === 'overdue') urgent = true;
-        if(dueInfo.type === 'due'){
-            const unitShort = (dueInfo.unit || '')[0];
-            if(unitShort === 'm') urgent = true;
-            else if(unitShort === 'h' && dueInfo.value <= 4) urgent = true;
-            else if(unitShort === 'd' && dueInfo.value === 1) urgent = true;
-        }
+    // ============================
+    // Utility functions
+    // ============================
+    function extractDueInfo(text) {
+        const lower = text.toLowerCase();
+        const overdueMatch = lower.match(/overdue.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
+        if (overdueMatch) return { type: 'overdue', value: +overdueMatch[1], unit: overdueMatch[2] };
+        const dueMatch = lower.match(/due.*?in.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
+        return dueMatch ? { type: 'due', value: +dueMatch[1], unit: dueMatch[2] } : null;
     }
-    if(tagsText.indexOf('new') > -1) urgent = true;
 
-    if(!urgent && fullText){
-        const lower = fullText.toLowerCase();
-        const idx = lower.indexOf('customer responded');
-        if(idx !== -1){
-            const windowText = lower.slice(idx,idx+120);
-            const recentShort = /\b(minute|min|minutes|mins|hour|hr|hours)\b/.test(windowText);
-            const recentLong  = /\b(day|days|week|weeks|month|months|year|years)\b/.test(windowText);
-            if(recentShort && !recentLong) urgent = true;
-        }
+    function applyEscState(rootElement,tags) {
+        const infoElement = rootElement.querySelector('.ticket-info');
+        if (!infoElement) return;
+        infoElement.removeAttribute('data-esc');
+        const hasL2 = tags.includes('L2-ESC');
+        const hasL1 = tags.includes('L1-ESC');
+        if (hasL1 && hasL2) infoElement.setAttribute('data-esc','L1L2');
+        else if (hasL1) infoElement.setAttribute('data-esc','L1');
+        else if (hasL2) infoElement.setAttribute('data-esc','L2');
     }
-    return urgent;
-}
 
-function hideTagElements(rootElement){
-    rootElement.querySelectorAll('.ticket-tag-wrap,.status-tag-wrap,.ticket-tag-toprow')
-        .forEach(el => el.style.display = 'none');
-}
+    function isUrgent(fullText,dueInfo,tagsText) {
+        if (!dueInfo && tagsText.indexOf('new') < 0) return false;
 
-function applyCardStyles(){
-    document.querySelectorAll('.__module-tickets__tickets-list__tickets-table__ticket-item').forEach(cardElement => {
-        const mainContent = cardElement.querySelector('[data-test-ticket-content]');
-        if(!mainContent) return;
-
-        mainContent.classList.remove('ticket-priority-border','ticket-due-soon-border','ticket-due-today-border','ticket-new-border');
-
-        const ticketText   = mainContent.textContent;
-        const ticketStatus = Object.keys(statusColours).find(status => ticketText.includes(status)) || 'Open';
-        const listContainer = cardElement.closest('.tickets__list');
-        if(listContainer){
-            let background = '#fff';
-            if(styleMode === 0) background = `linear-gradient(90deg,${statusColours[ticketStatus]} 0,#fff 800px)`;
-            else if(styleMode === 1) background = statusColours[ticketStatus];
-            listContainer.style.setProperty('--card-background',background);
+        let urgent = false;
+        if (dueInfo) {
+            if (dueInfo.type === 'overdue') urgent = true;
+            if (dueInfo.type === 'due') {
+                const unitShort = (dueInfo.unit || '')[0];
+                if (unitShort === 'm') urgent = true;
+                else if (unitShort === 'h' && dueInfo.value <= 4) urgent = true;
+                else if (unitShort === 'd' && dueInfo.value === 1) urgent = true;
+            }
         }
+        if (tagsText.indexOf('new') > -1) urgent = true;
 
-        mainContent.style.background = 'transparent';
-        const infoBlock = cardElement.querySelector('.list-content--info');
-        if(infoBlock) infoBlock.style.background = 'transparent';
+        if (!urgent && fullText) {
+            const lower = fullText.toLowerCase();
+            const idx = lower.indexOf('customer responded');
+            if (idx !== -1) {
+                const windowText = lower.slice(idx,idx + 120);
+                const recentShort = /\b(minute|min|minutes|mins|hour|hr|hours)\b/.test(windowText);
+                const recentLong  = /\b(day|days|week|weeks|month|months|year|years)\b/.test(windowText);
+                if (recentShort && !recentLong) urgent = true;
+            }
+        }
+        return urgent;
+    }
 
-        const dueInfo = extractDueInfo(ticketText);
-        const tagNodes = [...mainContent.querySelectorAll('span.tag,span[class^="tag--"],.list-item')];
-        const tags = tagNodes.map(el => el.textContent.trim());
-        const tagsLowerJoined = tagNodes.map(el => el.textContent.trim().toLowerCase()).join(' ');
-        const urgent = isUrgent(ticketText,dueInfo,tagsLowerJoined);
-        mainContent.classList.toggle('ticket-new-border',ticketStatus === 'Open' && urgent);
+    function hideTagElements(rootElement) {
+        rootElement
+            .querySelectorAll('.ticket-tag-wrap,.status-tag-wrap,.ticket-tag-toprow')
+            .forEach(el => { el.style.display = 'none'; });
+    }
 
-        hideTagElements(mainContent);
-        applyEscState(cardElement,tags);
-    });
-}
+    // ============================
+    // Card styling
+    // ============================
+    function applyCardStyles() {
+        document
+            .querySelectorAll('.__module-tickets__tickets-list__tickets-table__ticket-item')
+            .forEach(cardElement => {
+                const mainContent = cardElement.querySelector('[data-test-ticket-content]');
+                if (!mainContent) return;
 
-function setupDropdowns(){
-    if(document.getElementById('style-select-btn')) return;
-    const targetContainer = document.querySelector('.page-actions__right .pull-right');
-    if(!targetContainer) return;
+                mainContent.classList.remove(
+                    'ticket-priority-border',
+                    'ticket-due-soon-border',
+                    'ticket-due-today-border',
+                    'ticket-new-border'
+                );
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'fd-style-dropdown';
+                const ticketText    = mainContent.textContent;
+                const ticketStatus  = Object.keys(statusColours).find(status => ticketText.includes(status)) || 'Open';
+                const listContainer = cardElement.closest('.tickets__list');
 
-    const button = document.createElement('button');
-    button.id = 'style-select-btn';
-    button.type = 'button';
-    button.textContent = 'Style: ' + STYLE_NAMES[styleMode];
-    button.className = 'fd-style-dropdown-btn';
+                if (listContainer) {
+                    let background = '#fff';
+                    if (styleMode === 0) {
+                        background = `linear-gradient(90deg,${statusColours[ticketStatus]} 0,#fff 750px)`;
+                    } else if (styleMode === 1) {
+                        background = statusColours[ticketStatus];
+                    }
+                    listContainer.style.setProperty('--card-background',background);
+                }
 
-    const menu = document.createElement('div');
-    menu.className = 'fd-style-dropdown-content';
+                mainContent.style.background = 'transparent';
+                const infoBlock = cardElement.querySelector('.list-content--info');
+                if (infoBlock) infoBlock.style.background = 'transparent';
 
-    STYLE_NAMES.forEach((name,index) => {
-        const link = document.createElement('a');
-        link.href = '#';
-        link.textContent = name;
-        link.dataset.index = String(index);
-        link.onclick = event => {
-            event.preventDefault();
-            event.stopPropagation();
-            styleMode = index;
-            localStorage.setItem(STORAGE_KEY,String(styleMode));
-            button.textContent = 'Style: ' + STYLE_NAMES[styleMode];
-            menu.classList.remove('show-dropdown');
-            applyCardStyles();
-        };
-        menu.appendChild(link);
-    });
+                const dueInfo        = extractDueInfo(ticketText);
+                const tagNodes       = [...mainContent.querySelectorAll('span.tag,span[class^="tag--"],.list-item')];
+                const tags           = tagNodes.map(el => el.textContent.trim());
+                const tagsLowerJoined = tagNodes
+                    .map(el => el.textContent.trim().toLowerCase())
+                    .join(' ');
+                const urgent         = isUrgent(ticketText,dueInfo,tagsLowerJoined);
 
-    button.onclick = event => {
-        event.stopPropagation();
-        document.querySelectorAll('.fd-style-dropdown-content').forEach(dropdown => {
-            if(dropdown !== menu) dropdown.classList.remove('show-dropdown');
+                mainContent.classList.toggle(
+                    'ticket-new-border',
+                    ticketStatus === 'Open' && urgent
+                );
+
+                hideTagElements(mainContent);
+                applyEscState(cardElement,tags);
+            });
+    }
+
+    // ============================
+    // Dropdown setup
+    // ============================
+    function setupDropdowns() {
+        if (document.getElementById('style-select-btn')) return;
+
+        const targetContainer = document.querySelector('.page-actions__right .pull-right');
+        if (!targetContainer) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'fd-style-dropdown';
+
+        const button = document.createElement('button');
+        button.id = 'style-select-btn';
+        button.type = 'button';
+        button.textContent = 'Style: ' + STYLE_NAMES[styleMode];
+        button.className = 'fd-style-dropdown-btn';
+
+        const menu = document.createElement('div');
+        menu.className = 'fd-style-dropdown-content';
+
+        STYLE_NAMES.forEach((name,index) => {
+            const link = document.createElement('a');
+            link.href = '#';
+            link.textContent = name;
+            link.dataset.index = String(index);
+            link.onclick = event => {
+                event.preventDefault();
+                event.stopPropagation();
+                styleMode = index;
+                localStorage.setItem(STORAGE_KEY,String(styleMode));
+                button.textContent = 'Style: ' + STYLE_NAMES[styleMode];
+                menu.classList.remove('show-dropdown');
+                applyCardStyles();
+            };
+            menu.appendChild(link);
         });
-        menu.classList.toggle('show-dropdown');
-    };
 
-    wrapper.appendChild(button);
-    wrapper.appendChild(menu);
-    targetContainer.insertBefore(wrapper,targetContainer.firstChild);
+        button.onclick = event => {
+            event.stopPropagation();
+            document
+                .querySelectorAll('.fd-style-dropdown-content')
+                .forEach(dropdown => {
+                    if (dropdown !== menu) dropdown.classList.remove('show-dropdown');
+                });
+            menu.classList.toggle('show-dropdown');
+        };
 
-    document.addEventListener('click',event => {
-        if(!event.target.closest('.fd-style-dropdown')){
-            document.querySelectorAll('.fd-style-dropdown-content').forEach(dropdown => dropdown.classList.remove('show-dropdown'));
-        }
+        wrapper.appendChild(button);
+        wrapper.appendChild(menu);
+        targetContainer.insertBefore(wrapper,targetContainer.firstChild);
+
+        document.addEventListener('click',event => {
+            if (!event.target.closest('.fd-style-dropdown')) {
+                document
+                    .querySelectorAll('.fd-style-dropdown-content')
+                    .forEach(dropdown => dropdown.classList.remove('show-dropdown'));
+            }
+        });
+    }
+
+    // ============================
+    // Mutation observer and initialisation
+    // ============================
+    const observer = new MutationObserver(() => {
+        observer.disconnect();
+        applyCardStyles();
+        setupDropdowns();
+        observer.observe(document.body,{ childList: true, subtree: true });
     });
-}
 
-const observer = new MutationObserver(() => {
-    observer.disconnect();
+    observer.observe(document.body,{ childList: true, subtree: true });
     applyCardStyles();
     setupDropdowns();
-    observer.observe(document.body,{childList:true,subtree:true});
-});
-
-observer.observe(document.body,{childList:true,subtree:true});
-applyCardStyles();
-setupDropdowns();
 })();
