@@ -67,7 +67,7 @@
 .tickets__list .ticket-title-row{display:flex;align-items:center!important;margin:0;gap:0;width:100%}
 .tickets__list .ticket-title-row .muted[data-test-ticket-id]{margin-left:auto!important;font-size:15px;font-weight:500;color:#778393;min-width:52px;text-align:right}
 .wordbreak-fix{color:#19334c;font-size:18px;font-weight:600}
-.ticket-info{padding-top:0px;color:#6f7c87;font-size:14px}
+.ticket-info{padding-top:6px;color:#6f7c87;font-size:14px}
 .ticket-due-soon-border,.ticket-due-today-border,.ticket-priority-border,.ticket-new-border{border-left:none!important}
 .ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:5px;background:#f22;border-top-left-radius:0px;border-bottom-left-radius:0px}
 .ticket-tag-toprow,.ticket-tag-toprow>.tag,.ticket-tag-toprow>span[class^="tag--"],.ticket-tag-toprow>.ticket-ribbon{display:none!important}
