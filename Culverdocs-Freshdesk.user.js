@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.2.0
+// @version      2.2.1
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -42,8 +42,8 @@
 .col-md-12{padding-left:0;padding-right:0}
 .left-nav-mfe-wrapper,.left-nav-mfe{width:240px!important}
 .fd-style-dropdown{position:relative;display:inline-block;vertical-align:middle;margin-right:10px}
-.fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;border-radius:6px;color:#375e6b;padding:2px 14px;height:30px;cursor:pointer;transition:background .18s,color .18s;outline:0;min-width:auto;text-align:left}
-.fd-style-dropdown-content{display:none;position:absolute;background-color:#f1f1f1;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:10;border-radius:6px;overflow:hidden}
+.fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;color:#375e6b;padding:2px 14px;height:30px;cursor:pointer;transition:background .18s,color .18s;outline:0;min-width:auto;text-align:left}
+.fd-style-dropdown-content{display:none;position:absolute;background-color:#f1f1f1;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:10;overflow:hidden}
 .fd-style-dropdown-content a{color:#000;padding:8px 16px;text-decoration:none;display:block;font-size:13px}
 .fd-style-dropdown-content a:hover{background-color:#ddd}
 .show-dropdown{display:block}
@@ -59,18 +59,17 @@
 [style*="width: 400px"]{width:120px!important}
 [style*="width: 120px"]{width:200px!important}
 [style*="width: 12vw"]{width:80px!important}
-.tickets__list{min-height:76px;border-radius:5px;background:0 0;display:table;width:99%;box-sizing:border-box;position:relative;margin-bottom:6px}
-.tickets__list::before{content:"";position:absolute;top:0;left:0;right:0;bottom:0;z-index:-1;border-radius:5px;background:var(--card-background,#fff)}
+.tickets__list{min-height:76px;display:table;width:99%;box-sizing:border-box;position:relative;margin-bottom:6px;background:var(--card-background,#fff);border-radius:0px !important;}
 .tickets__list,.trial-widget{margin-bottom:12px!important;box-shadow:2px 4px 6px 0 #cfd7df}
 .__module-tickets__tickets-list__tickets-table__ticket-item .list-content{padding-left:0!important}
-.tickets__list .list-content--main{padding-right:0}
+.tickets__list .list-content--main{padding-right:0;background:transparent!important}
 .tickets__list .list-content{padding-top:0;padding-bottom:0}
 .tickets__list .ticket-title-row{display:flex;align-items:center!important;margin:0;gap:0;width:100%}
 .tickets__list .ticket-title-row .muted[data-test-ticket-id]{margin-left:auto!important;font-size:15px;font-weight:500;color:#778393;min-width:52px;text-align:right}
 .wordbreak-fix{color:#19334c;font-size:18px;font-weight:600}
-.ticket-info{padding-top:8px;color:#6f7c87;font-size:14px}
+.ticket-info{padding-top:0px;color:#6f7c87;font-size:14px}
 .ticket-due-soon-border,.ticket-due-today-border,.ticket-priority-border,.ticket-new-border{border-left:none!important}
-.ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:5px;background:#f22;border-top-left-radius:5px;border-bottom-left-radius:5px}
+.ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:5px;background:#f22;border-top-left-radius:0px;border-bottom-left-radius:0px}
 .ticket-tag-toprow,.ticket-tag-toprow>.tag,.ticket-tag-toprow>span[class^="tag--"],.ticket-tag-toprow>.ticket-ribbon{display:none!important}
 .list-check-wrap{position:relative}
 .list-filter-wrap .list-filter__item,.list-filter-wrap .list-filter__priority,.list-filter-wrap .list-filter__status{width:170px}
@@ -79,6 +78,7 @@
 .list-filter-wrap .list-filter__priority .list-filter__item--icon-overlay{top:1px}
 .list-filter__item,.list-filter__item:hover,.list-filter__item:focus,.list-filter__item:active,.list-filter__priority,.list-filter__priority:hover,.list-filter__priority:focus,.list-filter__priority:active,.list-filter__status,.list-filter__status:hover,.list-filter__status:focus,.list-filter__status:active,.assignto-filter-wrap,.assignto-filter-wrap:hover,.assignto-filter-wrap:focus,.assignto-filter-wrap:active,.ticket-list-dropselect,.ticket-list-dropselect:hover,.ticket-list-dropselect:focus,.ticket-list-dropselect:active,.ember-power-select-trigger,.ember-power-select-trigger:hover,.ember-power-select-trigger:focus,.ember-power-select-trigger:active,.ember-basic-dropdown-trigger,.ember-basic-dropdown-trigger:hover,.ember-basic-dropdown-trigger:focus,.ember-basic-dropdown-trigger:active{background:0 0!important;background-color:transparent!important}
 .list-content-wrap{padding:16px}
+.list-content--info{background:transparent!important}
 .app-content-area,body{min-width:958px}
 .col-md-9{width:auto}
 @media (max-width:1120px){
@@ -170,11 +170,11 @@
                 if (listContainer) {
                     let background = '#fff';
                     if (styleMode === 0) {
-                        background = `linear-gradient(90deg,${statusColours[ticketStatus]} 0,#fff 750px)`;
+                        background = `linear-gradient(90deg,${statusColours[ticketStatus]} 0,#fff 800px)`;
                     } else if (styleMode === 1) {
                         background = statusColours[ticketStatus];
                     }
-                    listContainer.style.setProperty('--card-background',background);
+                    listContainer.style.background = background;
                 }
 
                 mainContent.style.background = 'transparent';
