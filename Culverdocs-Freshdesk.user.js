@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.2.1
+// @version      2.2.2
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs-Freshdesk.user.js
-// @downloadURL  https://raw.githubusercontent.com/Quoeiza/tampermonkey/main/Culverdocs-Freshdesk.user.js
+// @updateURL    https://raw.githubusercontent.com/Quoeiza/templates/main/Culverdocs-Freshdesk.user.js
+// @downloadURL  https://raw.githubusercontent.com/Quoeiza/templates/main/Culverdocs-Freshdesk.user.js
 // ==/UserScript==
 
 (function () {
@@ -41,6 +41,7 @@
     const css = `
 .col-md-12{padding-left:0;padding-right:0}
 .left-nav-mfe-wrapper,.left-nav-mfe{width:240px!important}
+.ember-light-table table {border-collapse: separate;}
 .fd-style-dropdown{position:relative;display:inline-block;vertical-align:middle;margin-right:10px}
 .fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;color:#375e6b;padding:2px 14px;height:30px;cursor:pointer;transition:background .18s,color .18s;outline:0;min-width:auto;text-align:left}
 .fd-style-dropdown-content{display:none;position:absolute;background-color:#f1f1f1;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:10;overflow:hidden}
@@ -59,8 +60,7 @@
 [style*="width: 400px"]{width:120px!important}
 [style*="width: 120px"]{width:200px!important}
 [style*="width: 12vw"]{width:80px!important}
-.tickets__list{min-height:76px;display:table;width:99%;box-sizing:border-box;position:relative;margin-bottom:6px;background:var(--card-background,#fff);border-radius:0px !important;}
-.tickets__list,.trial-widget{margin-bottom:12px!important;box-shadow:2px 4px 6px 0 #cfd7df}
+.tickets__list{min-height:76px;display:table;width:99%;box-sizing:border-box;position:relative;margin-bottom:11px!important;background:var(--card-background,#fff);border-radius:8px!important;overflow:hidden;box-shadow:2px 4px 6px 0 #cfd7df}
 .__module-tickets__tickets-list__tickets-table__ticket-item .list-content{padding-left:0!important}
 .tickets__list .list-content--main{padding-right:0;background:transparent!important}
 .tickets__list .list-content{padding-top:0;padding-bottom:0}
@@ -69,7 +69,7 @@
 .wordbreak-fix{color:#19334c;font-size:18px;font-weight:600}
 .ticket-info{padding-top:6px;color:#6f7c87;font-size:14px}
 .ticket-due-soon-border,.ticket-due-today-border,.ticket-priority-border,.ticket-new-border{border-left:none!important}
-.ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:5px;background:#f22;border-top-left-radius:0px;border-bottom-left-radius:0px}
+.ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:6px;background:#f22;border-top-left-radius:inherit;border-bottom-left-radius:inherit;z-index:1}
 .ticket-tag-toprow,.ticket-tag-toprow>.tag,.ticket-tag-toprow>span[class^="tag--"],.ticket-tag-toprow>.ticket-ribbon{display:none!important}
 .list-check-wrap{position:relative}
 .list-filter-wrap .list-filter__item,.list-filter-wrap .list-filter__priority,.list-filter-wrap .list-filter__status{width:170px}
