@@ -60,7 +60,7 @@
 [style*="width: 400px"]{width:120px!important}
 [style*="width: 120px"]{width:200px!important}
 [style*="width: 12vw"]{width:80px!important}
-.tickets__list{min-height:76px;display:table;width:99%;box-sizing:border-box;position:relative;margin-bottom:11px!important;background:var(--card-background,#fff);border-radius:8px!important;overflow:hidden;box-shadow:2px 4px 6px 0 #cfd7df}
+.tickets__list{min-height:76px;display:table;width:99.9%;box-sizing:border-box;position:relative;margin-bottom:11px!important;background:var(--card-background,#fff);border-radius:8px!important;overflow:hidden;box-shadow:2px 4px 6px 0 #cfd7df}
 .__module-tickets__tickets-list__tickets-table__ticket-item .list-content{padding-left:0!important}
 .tickets__list .list-content--main{padding-right:0;background:transparent!important}
 .tickets__list .list-content{padding-top:0;padding-bottom:0}
