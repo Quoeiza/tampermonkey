@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.2.2
+// @version      2.2.3
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -43,10 +43,10 @@
 .left-nav-mfe-wrapper,.left-nav-mfe{width:240px!important}
 .ember-light-table table {border-collapse: separate;}
 .fd-style-dropdown{position:relative;display:inline-block;vertical-align:middle;margin-right:10px}
-.fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;color:#375e6b;padding:2px 14px;height:30px;cursor:pointer;transition:background .18s,color .18s;outline:0;min-width:auto;text-align:left}
-.fd-style-dropdown-content{display:none;position:absolute;background-color:#f1f1f1;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:10;overflow:hidden}
-.fd-style-dropdown-content a{color:#000;padding:8px 16px;text-decoration:none;display:block;font-size:13px}
-.fd-style-dropdown-content a:hover{background-color:#ddd}
+.fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;colour:#375e6b;padding:2px 14px;height:30px;cursor:pointer;transition:background .18s,colour .18s;outline:0;min-width:auto;text-align:left}
+.fd-style-dropdown-content{display:none;position:absolute;background-colour:#f1f1f1;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:10;overflow:hidden}
+.fd-style-dropdown-content a{colour:#000;padding:8px 16px;text-decoration:none;display:block;font-size:13px}
+.fd-style-dropdown-content a:hover{background-colour:#ddd}
 .show-dropdown{display:block}
 .hidden-overdue-badge{display:none!important}
 .avatar-icon.avatar-icon--rounded .avatar-block{margin-left:9px}
@@ -64,10 +64,10 @@
 .__module-tickets__tickets-list__tickets-table__ticket-item .list-content{padding-left:0!important}
 .tickets__list .list-content--main{padding-right:0;background:transparent!important}
 .tickets__list .list-content{padding-top:0;padding-bottom:0}
-.tickets__list .ticket-title-row{display:flex;align-items:center!important;margin:0;gap:0;width:100%}
-.tickets__list .ticket-title-row .muted[data-test-ticket-id]{margin-left:auto!important;font-size:15px;font-weight:500;color:#778393;min-width:52px;text-align:right}
-.wordbreak-fix{color:#19334c;font-size:18px;font-weight:600}
-.ticket-info{padding-top:6px;color:#6f7c87;font-size:14px}
+.tickets__list .ticket-title-row{display:flex;align-items:centre!important;margin:0;gap:0;width:100%}
+.tickets__list .ticket-title-row .muted[data-test-ticket-id]{margin-left:auto!important;font-size:15px;font-weight:500;colour:#778393;min-width:52px;text-align:right}
+.wordbreak-fix{colour:#19334c;font-size:18px;font-weight:600}
+.ticket-info{padding-top:6px;colour:#6f7c87;font-size:14px}
 .ticket-due-soon-border,.ticket-due-today-border,.ticket-priority-border,.ticket-new-border{border-left:none!important}
 .ticket-priority-border::before,.ticket-new-border::before{content:"";position:absolute;top:0;bottom:0;left:0;width:6px;background:#f22;border-top-left-radius:inherit;border-bottom-left-radius:inherit;z-index:1}
 .ticket-tag-toprow,.ticket-tag-toprow>.tag,.ticket-tag-toprow>span[class^="tag--"],.ticket-tag-toprow>.ticket-ribbon{display:none!important}
@@ -76,7 +76,7 @@
 .list-filter-wrap .list-filter__icon-assignto,.list-filter-wrap .list-filter__icon-status{top:-2px}
 .list-filter-wrap .list-filter__item--icon-overlay{background:#ffffff00}
 .list-filter-wrap .list-filter__priority .list-filter__item--icon-overlay{top:1px}
-.list-filter__item,.list-filter__item:hover,.list-filter__item:focus,.list-filter__item:active,.list-filter__priority,.list-filter__priority:hover,.list-filter__priority:focus,.list-filter__priority:active,.list-filter__status,.list-filter__status:hover,.list-filter__status:focus,.list-filter__status:active,.assignto-filter-wrap,.assignto-filter-wrap:hover,.assignto-filter-wrap:focus,.assignto-filter-wrap:active,.ticket-list-dropselect,.ticket-list-dropselect:hover,.ticket-list-dropselect:focus,.ticket-list-dropselect:active,.ember-power-select-trigger,.ember-power-select-trigger:hover,.ember-power-select-trigger:focus,.ember-power-select-trigger:active,.ember-basic-dropdown-trigger,.ember-basic-dropdown-trigger:hover,.ember-basic-dropdown-trigger:focus,.ember-basic-dropdown-trigger:active{background:0 0!important;background-color:transparent!important}
+.list-filter__item,.list-filter__item:hover,.list-filter__item:focus,.list-filter__item:active,.list-filter__priority,.list-filter__priority:hover,.list-filter__priority:focus,.list-filter__priority:active,.list-filter__status,.list-filter__status:hover,.list-filter__status:focus,.list-filter__status:active,.assignto-filter-wrap,.assignto-filter-wrap:hover,.assignto-filter-wrap:focus,.assignto-filter-wrap:active,.ticket-list-dropselect,.ticket-list-dropselect:hover,.ticket-list-dropselect:focus,.ticket-list-dropselect:active,.ember-power-select-trigger,.ember-power-select-trigger:hover,.ember-power-select-trigger:focus,.ember-power-select-trigger:active,.ember-basic-dropdown-trigger,.ember-basic-dropdown-trigger:hover,.ember-basic-dropdown-trigger:focus,.ember-basic-dropdown-trigger:active{background:0 0!important;background-colour:transparent!important}
 .list-content-wrap{padding:16px}
 .list-content--info{background:transparent!important}
 .app-content-area,body{min-width:958px}
@@ -95,10 +95,17 @@
     // ============================
     function extractDueInfo(text) {
         const lower = text.toLowerCase();
-        const overdueMatch = lower.match(/overdue.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
-        if (overdueMatch) return { type: 'overdue', value: +overdueMatch[1], unit: overdueMatch[2] };
-        const dueMatch = lower.match(/due.*?in.*?(\d+)\s*(day|hour|minute|d|h|m)/i);
-        return dueMatch ? { type: 'due', value: +dueMatch[1], unit: dueMatch[2] } : null;
+
+        function parseValue(val) {
+            if (val === 'a' || val === 'an') return 1;
+            return parseInt(val, 10);
+        }
+
+        const overdueMatch = lower.match(/overdue.*?(\d+|a|an)\s*(day|hour|minute|d|h|m)/i);
+        if (overdueMatch) return { type: 'overdue', value: parseValue(overdueMatch[1]), unit: overdueMatch[2] };
+
+        const dueMatch = lower.match(/due.*?in.*?(\d+|a|an)\s*(day|hour|minute|d|h|m)/i);
+        return dueMatch ? { type: 'due', value: parseValue(dueMatch[1]), unit: dueMatch[2] } : null;
     }
 
     function applyEscState(rootElement,tags) {
@@ -113,9 +120,8 @@
     }
 
     function isUrgent(fullText,dueInfo,tagsText) {
-        if (!dueInfo && tagsText.indexOf('new') < 0) return false;
-
         let urgent = false;
+
         if (dueInfo) {
             if (dueInfo.type === 'overdue') urgent = true;
             if (dueInfo.type === 'due') {
@@ -129,9 +135,10 @@
 
         if (!urgent && fullText) {
             const lower = fullText.toLowerCase();
-            const idx = lower.indexOf('customer responded');
-            if (idx !== -1) {
-                const windowText = lower.slice(idx,idx + 120);
+            const match = lower.match(/customer responded[\s\S]*?ago/);
+
+            if (match) {
+                const windowText = match[0];
                 const recentShort = /\b(minute|min|minutes|mins|hour|hr|hours)\b/.test(windowText);
                 const recentLong  = /\b(day|days|week|weeks|month|months|year|years)\b/.test(windowText);
                 if (recentShort && !recentLong) urgent = true;
