@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.2.3
+// @version      2.2.4
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -170,8 +170,18 @@
                     'ticket-new-border'
                 );
 
-                const ticketText    = mainContent.textContent;
-                const ticketStatus  = Object.keys(statusColours).find(status => ticketText.includes(status)) || 'Open';
+                const ticketText = mainContent.textContent;
+
+                // FIX: Find whichever status key appears latest in the card text.
+                // Scanning from the end means we hit the status label before the ticket title,
+                // preventing titles like "Form Not Opening" from falsely matching 'Open'.
+                const ticketStatus = Object.keys(statusColours)
+                    .reduce((best, s) => {
+                        const idx = ticketText.lastIndexOf(s);
+                        return idx > best.idx ? { status: s, idx } : best;
+                    }, { status: 'Open', idx: -1 })
+                    .status;
+
                 const listContainer = cardElement.closest('.tickets__list');
 
                 if (listContainer) {
