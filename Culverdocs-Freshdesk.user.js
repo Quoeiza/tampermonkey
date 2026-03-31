@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.2.4
+// @version      2.2.5
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -220,9 +220,17 @@
     // Dropdown setup
     // ============================
     function setupDropdowns() {
-        if (document.getElementById('style-select-btn')) return;
+        // The button lives inside a Shadow DOM, so document.getElementById won't find it.
+        // We must check the shadow root directly to avoid inserting duplicates.
+        const shadowHost = document.querySelector('ticket-top-nav');
+        const shadowRoot = shadowHost && shadowHost.shadowRoot;
+        if (shadowRoot && shadowRoot.getElementById('style-select-btn')) return;
+        if (!shadowRoot && document.getElementById('style-select-btn')) return; // legacy fallback
 
-        const targetContainer = document.querySelector('.page-actions__right .pull-right');
+        const targetContainer =
+            (shadowRoot && shadowRoot.querySelector('[data-testid="right-section"]')) ||
+            document.querySelector('.page-actions__right .pull-right'); // legacy fallback
+
         if (!targetContainer) return;
 
         const wrapper = document.createElement('div');
@@ -264,9 +272,26 @@
             menu.classList.toggle('show-dropdown');
         };
 
+        // Inject dropdown styles into the shadow root since main document CSS can't pierce it.
+        if (shadowRoot && !shadowRoot.getElementById('fd-style-dropdown-css')) {
+            const shadowStyle = document.createElement('style');
+            shadowStyle.id = 'fd-style-dropdown-css';
+            shadowStyle.textContent = `
+                .fd-style-dropdown{position:relative;display:inline-block;vertical-align:middle;margin-right:10px}
+                .fd-style-dropdown-btn{font-size:13px;font-weight:500;background:#f8f9fa;border:1px solid #d7dbe3;color:#375e6b;padding:2px 14px;height:30px;cursor:pointer;outline:0;min-width:auto;text-align:left;border-radius:4px}
+                .fd-style-dropdown-btn:hover{background:#e9ecef}
+                #ticket-top-nav,.root-app,[data-testid="top-navigation-container"],[data-testid="right-section"]{overflow:visible!important}
+                .fd-style-dropdown-content{display:none;position:fixed;background:#fff;min-width:160px;box-shadow:0 8px 16px 0 rgba(0,0,0,.2);z-index:99999;overflow:hidden;border-radius:4px;border:1px solid #d7dbe3}
+                .fd-style-dropdown-content a{color:#000;padding:8px 16px;text-decoration:none;display:block;font-size:13px}
+                .fd-style-dropdown-content a:hover{background:#f0f0f0}
+                .show-dropdown{display:block!important}
+            `;
+            shadowRoot.appendChild(shadowStyle);
+        }
+
         wrapper.appendChild(button);
         wrapper.appendChild(menu);
-        targetContainer.insertBefore(wrapper,targetContainer.firstChild);
+        targetContainer.appendChild(wrapper);
 
         document.addEventListener('click',event => {
             if (!event.target.closest('.fd-style-dropdown')) {
@@ -280,11 +305,13 @@
     // ============================
     // Mutation observer and initialisation
     // ============================
+    let debounceTimer = null;
     const observer = new MutationObserver(() => {
-        observer.disconnect();
-        applyCardStyles();
-        setupDropdowns();
-        observer.observe(document.body,{ childList: true, subtree: true });
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            applyCardStyles();
+            setupDropdowns();
+        }, 150);
     });
 
     observer.observe(document.body,{ childList: true, subtree: true });
