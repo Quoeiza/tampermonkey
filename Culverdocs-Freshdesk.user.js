@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.5.0
+// @version      2.5.1
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -260,6 +260,15 @@ html.fd-dark .ticket-note-typography a {
 html.fd-dark .fd-bg-darkened {
     background-color: var(--fd-card-bg) !important;
     background-image: none !important;
+}
+
+/* Froala reply/note editor: <pre> code blocks inherit Freshdesk's
+   --editor-code-block-bg, which resolves to a light blue. That isn't
+   an inline style so the JS normaliser can't see it — fix it via CSS
+   so editor and rendered conversation match. */
+html.fd-dark .fr-element pre,
+html.fd-dark .fr-view pre {
+    background-color: var(--fd-card-bg) !important;
 }
 
 @media (max-width: 1120px) {
