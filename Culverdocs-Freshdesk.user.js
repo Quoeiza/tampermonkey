@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.5.1
+// @version      2.6.1
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -525,6 +525,48 @@ html.fd-dark .fr-view pre {
     }
 
     // ============================
+    // Plain-text paste enforcement
+    // ============================
+    // Froala's default paste behaviour preserves every scrap of source
+    // formatting — fonts, sizes, colours, background highlights — which
+    // is the root of the "pasted text becomes invisible" problem. We
+    // attach a single listener at window scope in the capture phase and
+    // read the clipboard's plain-text payload, inserting only that.
+    //
+    // Why window/capture instead of per-editor/capture: Froala registers
+    // its own paste handler on the editor element before our userscript
+    // runs, so at any element below window in the cascade, theirs fires
+    // first. Window is the top of the capture cascade and always fires
+    // before any document- or element-level listener, regardless of
+    // attachment order. Combined with stopImmediatePropagation, that
+    // means Froala's handler never receives the event at all.
+    //
+    // execCommand is still the most reliable insertion path because it
+    // participates in the contenteditable native undo stack.
+    function handleEditorPaste(event) {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (!target.closest('.fr-element[contenteditable="true"]')) return;
+
+        const clipboardData = event.clipboardData || window.clipboardData;
+        if (!clipboardData) return;
+
+        const text = clipboardData.getData('text/plain');
+        if (!text) return; // image or non-text content — let Froala handle it
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        document.execCommand('insertText', false, text);
+    }
+
+    let pasteHandlerRegistered = false;
+    function registerEditorPasteHandler() {
+        if (pasteHandlerRegistered) return;
+        pasteHandlerRegistered = true;
+        window.addEventListener('paste', handleEditorPaste, true);
+    }
+
+    // ============================
     // Card styling
     // ============================
     function applyCardStyles() {
@@ -690,4 +732,5 @@ html.fd-dark .fr-view pre {
     syncTheme();
     applyCardStyles();
     setupDropdowns();
+    registerEditorPasteHandler();
 })();
