@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.6.1
+// @version      2.7.0
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -525,24 +525,135 @@ html.fd-dark .fr-view pre {
     }
 
     // ============================
-    // Plain-text paste enforcement
+    // Paste sanitisation — limited formatting
     // ============================
-    // Froala's default paste behaviour preserves every scrap of source
-    // formatting — fonts, sizes, colours, background highlights — which
-    // is the root of the "pasted text becomes invisible" problem. We
-    // attach a single listener at window scope in the capture phase and
-    // read the clipboard's plain-text payload, inserting only that.
+    // Froala's default paste preserves every scrap of source formatting —
+    // fonts, sizes, colours, background highlights — which is the root of the
+    // "pasted text becomes invisible" problem. Rather than flatten everything
+    // to plain text, we keep a deliberate allow-list: links, bullet/numbered
+    // lists, and bold. Everything else (headers, italics, highlight, font
+    // colour/size, underline, tables, …) is unwrapped: the text survives, the
+    // formatting does not. The model is deny-by-default — anything not named
+    // below is stripped, and even the kept elements are rebuilt from scratch
+    // copying only `href`, so no inline style/colour can ride along.
     //
-    // Why window/capture instead of per-editor/capture: Froala registers
-    // its own paste handler on the editor element before our userscript
-    // runs, so at any element below window in the cascade, theirs fires
-    // first. Window is the top of the capture cascade and always fires
-    // before any document- or element-level listener, regardless of
-    // attachment order. Combined with stopImmediatePropagation, that
-    // means Froala's handler never receives the event at all.
+    // Why window/capture: Froala registers its own paste handler on the editor
+    // element before our userscript runs, so theirs fires first at any element
+    // below window. Window is the top of the capture cascade and always fires
+    // first; combined with stopImmediatePropagation, Froala never sees the event.
     //
     // execCommand is still the most reliable insertion path because it
     // participates in the contenteditable native undo stack.
+    const ALLOWED_LINK_PROTOCOLS = /^(https?:|mailto:|tel:)/i;
+    // Dropped entirely — element AND its text. These hold CSS/JS payloads we
+    // must never emit as literal text (a plain unwrap would leak their guts).
+    const PASTE_SKIP_TAGS  = new Set(['SCRIPT', 'STYLE', 'HEAD', 'META', 'LINK', 'TITLE', 'NOSCRIPT']);
+    // Block-level tags whose formatting we drop, but which should still leave a
+    // line break behind so paragraphs/headers don't run together into one blob.
+    const PASTE_BLOCK_TAGS = new Set([
+        'P', 'DIV', 'BLOCKQUOTE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR'
+    ]);
+
+    // Returns true/false if the inline font-weight settles the question, or
+    // null if it says nothing (so the caller keeps the inherited bold state).
+    // This is the only inline style property the sanitiser ever reads — and it
+    // reads the value only to decide on a clean <strong>, never copying it.
+    function boldFromStyle(el) {
+        const fw = el.style && el.style.fontWeight;
+        if (!fw) return null;
+        if (fw === 'bold' || fw === 'bolder') return true;
+        if (fw === 'normal' || fw === 'lighter') return false;
+        const n = parseInt(fw, 10);
+        return isNaN(n) ? null : n >= 600;
+    }
+
+    function wrapBold(text) {
+        const strong = document.createElement('strong');
+        strong.textContent = text;
+        return strong;
+    }
+
+    // Recursively copy allowed content from `src` into `dest`, carrying the
+    // current bold state down through nested elements.
+    function cleanPasteInto(src, dest, inheritBold) {
+        src.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node.nodeValue;
+                if (!text) return;
+                dest.appendChild(inheritBold ? wrapBold(text) : document.createTextNode(text));
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return; // skip comments etc.
+
+            const tag = node.tagName;
+            if (PASTE_SKIP_TAGS.has(tag)) return; // never emit <style>/<script> text
+
+            // Resolve bold for this element: tag sets it on, inline style can
+            // turn it on or explicitly off, otherwise inherit.
+            let bold = inheritBold;
+            if (tag === 'B' || tag === 'STRONG') bold = true;
+            const styleBold = boldFromStyle(node);
+            if (styleBold !== null) bold = styleBold;
+
+            if (tag === 'A') {
+                const href = (node.getAttribute('href') || '').trim();
+                if (ALLOWED_LINK_PROTOCOLS.test(href)) {
+                    const a = document.createElement('a');
+                    a.setAttribute('href', href);
+                    cleanPasteInto(node, a, bold);
+                    dest.appendChild(a);
+                } else {
+                    cleanPasteInto(node, dest, bold); // bad/relative href: keep text only
+                }
+                return;
+            }
+
+            if (tag === 'UL' || tag === 'OL') {
+                const list = document.createElement(tag.toLowerCase());
+                cleanPasteInto(node, list, inheritBold);
+                if (list.childNodes.length) dest.appendChild(list);
+                return;
+            }
+
+            if (tag === 'LI') {
+                const li = document.createElement('li');
+                cleanPasteInto(node, li, bold);
+                dest.appendChild(li);
+                return;
+            }
+
+            if (tag === 'BR') {
+                dest.appendChild(document.createElement('br'));
+                return;
+            }
+
+            // Anything else: discard the element, keep its contents.
+            cleanPasteInto(node, dest, bold);
+            if (PASTE_BLOCK_TAGS.has(tag)) dest.appendChild(document.createElement('br'));
+        });
+    }
+
+    function sanitizeClipboardHtml(html) {
+        // DOMParser doesn't load images or run scripts, so this is a safe way
+        // to turn the clipboard string into a walkable tree.
+        const doc  = new DOMParser().parseFromString(html, 'text/html');
+        const frag = document.createDocumentFragment();
+        cleanPasteInto(doc.body, frag, false);
+
+        const container = document.createElement('div');
+        container.appendChild(frag);
+
+        // Collapse the <br>s left behind by unwrapping block elements so we
+        // don't inject stacks of blank lines, and trim leading/trailing breaks.
+        container.innerHTML = container.innerHTML
+            .replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>')
+            .replace(/^(?:\s*<br\s*\/?>)+/i, '')
+            .replace(/(?:<br\s*\/?>\s*)+$/i, '');
+
+        return container.innerHTML.trim();
+    }
+
     function handleEditorPaste(event) {
         const target = event.target;
         if (!(target instanceof Element)) return;
@@ -551,11 +662,21 @@ html.fd-dark .fr-view pre {
         const clipboardData = event.clipboardData || window.clipboardData;
         if (!clipboardData) return;
 
+        const html = clipboardData.getData('text/html');
         const text = clipboardData.getData('text/plain');
-        if (!text) return; // image or non-text content — let Froala handle it
+        if (!html && !text) return; // image or non-text content — let Froala handle it
 
         event.preventDefault();
         event.stopImmediatePropagation();
+
+        if (html) {
+            const clean = sanitizeClipboardHtml(html);
+            if (clean) {
+                document.execCommand('insertHTML', false, clean);
+                return;
+            }
+        }
+        // No HTML, or it sanitised down to nothing: fall back to plain text.
         document.execCommand('insertText', false, text);
     }
 
