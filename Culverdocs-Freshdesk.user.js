@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.7.0
-// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes.
+// @version      2.12
+// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour and font family.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
@@ -33,7 +33,7 @@
     // ============================
     // All theming runs through CSS custom properties. Switching between light
     // and dark mode swaps a single block of variables, so the JS stays
-    // theme-agnostic — it only writes data-* attributes onto cards and lets
+    // theme-agnostic. It only writes data-* attributes onto cards and lets
     // CSS handle the rest. CSS variables inherit through Shadow DOM, so the
     // dropdown button inside <ticket-top-nav> follows the active theme too.
     const css = `
@@ -131,7 +131,7 @@ html.fd-dark {
 /* Status-driven card backgrounds. The card gets data-status from the script,
    then CSS picks the matching pastel and feeds it into the chosen style mode.
    This isolates "what's the colour for this status" from "how is the colour
-   applied" — switching themes only touches the colour, not the layout. */
+   applied", so switching themes only touches the colour, not the layout. */
 .tickets__list[data-status="Open"]    { --fd-status-bg: var(--fd-status-open); }
 .tickets__list[data-status="Pending"] { --fd-status-bg: var(--fd-status-pending); }
 .tickets__list[data-status="On Hold"] { --fd-status-bg: var(--fd-status-on-hold); }
@@ -202,7 +202,7 @@ html.fd-dark {
     z-index: 1;
 }
 
-/* Hide Freshdesk's own tag row — we redraw escalation as an emoji prefix */
+/* Hide Freshdesk's own tag row, since we redraw escalation as an emoji prefix */
 .ticket-tag-toprow,
 .ticket-tag-toprow > .tag,
 .ticket-tag-toprow > span[class^="tag--"],
@@ -264,11 +264,32 @@ html.fd-dark .fd-bg-darkened {
 
 /* Froala reply/note editor: <pre> code blocks inherit Freshdesk's
    --editor-code-block-bg, which resolves to a light blue. That isn't
-   an inline style so the JS normaliser can't see it — fix it via CSS
-   so editor and rendered conversation match. */
+   an inline style so the JS normaliser can't see it, so fix it via CSS
+   and keep the editor and the rendered conversation in step. */
 html.fd-dark .fr-element pre,
 html.fd-dark .fr-view pre {
     background-color: var(--fd-card-bg) !important;
+}
+
+/* Pasted content arrives with colour and font family stripped, so it
+   inherits the editor's own typeface and text colour. Code blocks are
+   the one case where the typeface carries meaning, so restore monospace
+   from our own rule rather than from whatever the source specified. */
+.fr-element pre, .fr-element code, .fr-element kbd, .fr-element samp, .fr-element tt,
+.fr-view pre, .fr-view code, .fr-view kbd, .fr-view samp, .fr-view tt {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* Tables that carried no border description of their own would otherwise
+   paste in as an unreadable run of words, so give them a hairline in
+   currentColor, which follows whichever theme is active. */
+.fr-element table:not([style*="border"]) td,
+.fr-element table:not([style*="border"]) th,
+.fr-view table:not([style*="border"]) td,
+.fr-view table:not([style*="border"]) th {
+    border: 1px solid currentColor;
+    padding: 4px 8px;
+    vertical-align: top;
 }
 
 @media (max-width: 1120px) {
@@ -488,18 +509,16 @@ html.fd-dark .fr-view pre {
     // ============================
     // Email body normalisation (dark mode only)
     // ============================
-    // Customer emails frequently inline near-white backgrounds — pure
-    // white from Outlook signature tables, off-whites like #fafafa or
-    // #f5f5f5 from email-client themes. Against the dark card these
-    // become bright rectangles. The CSS approach can't catch arbitrary
-    // shades (attribute selectors are exact substring matches), so we
-    // walk the email content, compute luminance for each inline
-    // background, and tag the bright ones with .fd-bg-darkened — the
-    // CSS rule then swaps them to the card's near-black.
+    // Customer emails frequently inline near-white backgrounds: pure white
+    // from Outlook signature tables, off-whites like #fafafa or #f5f5f5 from
+    // email-client themes. Against the dark card these become bright
+    // rectangles. The CSS approach can't catch arbitrary shades (attribute
+    // selectors are exact substring matches), so we walk the email content,
+    // compute luminance for each inline background, and tag the bright ones
+    // with .fd-bg-darkened. The CSS rule then swaps them to near-black.
     //
-    // Threshold (0.85) is chosen to catch white through ~#d8d8d8
-    // without clobbering anything a customer might use as a
-    // deliberate light-tinted accent.
+    // Threshold (0.85) is chosen to catch white through ~#d8d8d8 without
+    // clobbering anything a customer might use as a deliberate light accent.
     const EMAIL_CONTENT_SELECTOR =
         '.ticket-details__conversation__content, .ticket-note-typography';
 
@@ -525,133 +544,253 @@ html.fd-dark .fr-view pre {
     }
 
     // ============================
-    // Paste sanitisation — limited formatting
+    // Paste sanitisation: colour and font family only
     // ============================
-    // Froala's default paste preserves every scrap of source formatting —
-    // fonts, sizes, colours, background highlights — which is the root of the
-    // "pasted text becomes invisible" problem. Rather than flatten everything
-    // to plain text, we keep a deliberate allow-list: links, bullet/numbered
-    // lists, and bold. Everything else (headers, italics, highlight, font
-    // colour/size, underline, tables, …) is unwrapped: the text survives, the
-    // formatting does not. The model is deny-by-default — anything not named
-    // below is stripped, and even the kept elements are rebuilt from scratch
-    // copying only `href`, so no inline style/colour can ride along.
+    // Earlier versions used an element allow-list, which cost far more
+    // formatting than the problem warranted. The model is now inverted.
+    // Structure and formatting are preserved as pasted (tables, code blocks,
+    // lists, headings, bold, italics, underline, strikethrough, links,
+    // images, alignment, sizes), and the sanitiser removes exactly two
+    // things.
+    //
+    // Colour, in every form it can arrive:
+    //   1. Inline colour longhands: color, background-color, border-*-color,
+    //      outline-color, caret-color, and anything else ending in -color.
+    //   2. Colour carried inside a shorthand (border, outline, column-rule,
+    //      text-decoration). The shorthand is kept and only its colour token
+    //      is dropped, so borders and underlines survive and fall back to
+    //      currentColor.
+    //   3. Backgrounds outright, gradients and background images included,
+    //      because a gradient is colour by another name.
+    //   4. Shadows, filters and blend modes, which can recolour or erase text.
+    //   5. Custom properties, which can smuggle a colour in through var().
+    //   6. Presentational colour attributes: bgcolor, <font color>, text,
+    //      link, vlink, alink, bordercolor, and the SVG fill/stroke family.
+    //
+    // Font family, in the three forms it can arrive:
+    //   1. The font-family longhand.
+    //   2. The `font` shorthand. Browsers normally expand it into longhands
+    //      when the style attribute is parsed, but where the shorthand name
+    //      survives iteration we drop it and re-apply only its weight and
+    //      italic tokens, so bold written as `font: bold 12px Arial` is not
+    //      lost along with the typeface.
+    //   3. The legacy <font face="..."> attribute.
+    //
+    // Both passes also drop class and id, because a pasted class can match a
+    // Freshdesk or Froala rule and reintroduce what was just removed. The
+    // source stylesheet never travels with the clipboard in any case.
+    //
+    // Script, style and other executable or interactive elements are dropped
+    // with their contents rather than unwrapped, so their guts can never be
+    // emitted as literal text. URLs are protocol-checked before being kept.
     //
     // Why window/capture: Froala registers its own paste handler on the editor
-    // element before our userscript runs, so theirs fires first at any element
+    // element before this userscript runs, so theirs fires first at any element
     // below window. Window is the top of the capture cascade and always fires
-    // first; combined with stopImmediatePropagation, Froala never sees the event.
+    // first; combined with stopImmediatePropagation, Froala never sees it.
     //
     // execCommand is still the most reliable insertion path because it
     // participates in the contenteditable native undo stack.
-    const ALLOWED_LINK_PROTOCOLS = /^(https?:|mailto:|tel:)/i;
-    // Dropped entirely — element AND its text. These hold CSS/JS payloads we
-    // must never emit as literal text (a plain unwrap would leak their guts).
-    const PASTE_SKIP_TAGS  = new Set(['SCRIPT', 'STYLE', 'HEAD', 'META', 'LINK', 'TITLE', 'NOSCRIPT']);
-    // Block-level tags whose formatting we drop, but which should still leave a
-    // line break behind so paragraphs/headers don't run together into one blob.
-    const PASTE_BLOCK_TAGS = new Set([
-        'P', 'DIV', 'BLOCKQUOTE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER',
-        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR'
+    const ALLOWED_LINK_PROTOCOLS  = /^(?:https?:|mailto:|tel:|#)/i;
+    const ALLOWED_IMAGE_PROTOCOLS = /^(?:https?:|cid:|data:image\/)/i;
+
+    // Removed along with their contents: executable, interactive, metadata.
+    const PASTE_DROP_SELECTOR = [
+        'script', 'style', 'link', 'meta', 'title', 'base', 'noscript',
+        'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
+        'form', 'input', 'button', 'select', 'textarea', 'option'
+    ].join(',');
+
+    // Presentational attributes whose only job is colour or typeface.
+    const COLOUR_ATTRIBUTES = new Set([
+        'bgcolor', 'color', 'bordercolor', 'bordercolorlight', 'bordercolordark',
+        'text', 'link', 'vlink', 'alink',
+        'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
+    ]);
+    const FONT_ATTRIBUTES = new Set(['face']);
+
+    // Attributes that point at a resource and need a protocol check.
+    const URL_ATTRIBUTES = new Set([
+        'href', 'src', 'srcset', 'background', 'xlink:href', 'action', 'formaction', 'data'
     ]);
 
-    // Returns true/false if the inline font-weight settles the question, or
-    // null if it says nothing (so the caller keeps the inherited bold state).
-    // This is the only inline style property the sanitiser ever reads — and it
-    // reads the value only to decide on a clean <strong>, never copying it.
-    function boldFromStyle(el) {
-        const fw = el.style && el.style.fontWeight;
-        if (!fw) return null;
-        if (fw === 'bold' || fw === 'bolder') return true;
-        if (fw === 'normal' || fw === 'lighter') return false;
-        const n = parseInt(fw, 10);
-        return isNaN(n) ? null : n >= 600;
+    // Inline properties removed outright.
+    const COLOUR_PROPERTIES = new Set([
+        'color', '-webkit-text-fill-color', '-webkit-text-stroke',
+        '-webkit-text-stroke-color', 'text-emphasis', 'text-emphasis-color',
+        'background', 'background-color', 'background-image', 'background-blend-mode',
+        'box-shadow', 'text-shadow', 'filter', 'backdrop-filter', 'mix-blend-mode',
+        'accent-color', 'scrollbar-color', 'caret-color',
+        'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
+    ]);
+    const FONT_FAMILY_PROPERTIES = new Set([
+        'font-family', 'src', '-webkit-font-smoothing', '-moz-osx-font-smoothing'
+    ]);
+
+    // Shorthands kept, but with any colour token taken out of the value.
+    const COLOUR_SHORTHANDS = new Set([
+        'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+        'border-block', 'border-block-start', 'border-block-end',
+        'border-inline', 'border-inline-start', 'border-inline-end',
+        'outline', 'column-rule', 'text-decoration'
+    ]);
+
+    const CSS_NAMED_COLOURS = (
+        'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond ' +
+        'blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue ' +
+        'cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey ' +
+        'darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon ' +
+        'darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet ' +
+        'deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen ' +
+        'fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew ' +
+        'hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon ' +
+        'lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey ' +
+        'lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey ' +
+        'lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine ' +
+        'mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen ' +
+        'mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite ' +
+        'navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen ' +
+        'paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple ' +
+        'rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell ' +
+        'sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan ' +
+        'teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen ' +
+        'transparent currentcolor'
+    ).split(' ');
+
+    // Colour functions, gradients included, matched with one level of nesting
+    // so an rgb() inside a gradient stop list is consumed with it.
+    const COLOUR_FUNCTION_RE = new RegExp(
+        '\\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|' +
+        '(?:repeating-)?(?:linear|radial|conic)-gradient)' +
+        '\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)',
+        'gi'
+    );
+    const HEX_COLOUR_RE   = /#[0-9a-f]{3,8}\b/gi;
+    const NAMED_COLOUR_RE = new RegExp('\\b(?:' + CSS_NAMED_COLOURS.join('|') + ')\\b', 'gi');
+
+    // Only ever applied to the shorthands listed above, so keyword values such
+    // as "solid" survive and unrelated properties are never touched.
+    function stripColourTokens(value) {
+        return String(value)
+            .replace(COLOUR_FUNCTION_RE, ' ')
+            .replace(HEX_COLOUR_RE, ' ')
+            .replace(NAMED_COLOUR_RE, ' ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
     }
 
-    function wrapBold(text) {
-        const strong = document.createElement('strong');
-        strong.textContent = text;
-        return strong;
+    // Pull weight and italic back out of a `font` shorthand before it is
+    // discarded. Size and line-height go with the typeface, since a size
+    // lifted from a source document is meaningless without its font.
+    function preserveFontShorthandTraits(style, value) {
+        const raw = String(value).toLowerCase();
+        if (/\b(?:italic|oblique)\b/.test(raw)) style.setProperty('font-style', 'italic');
+        if (/\bbold(?:er)?\b/.test(raw)) {
+            style.setProperty('font-weight', 'bold');
+            return;
+        }
+        const weight = raw.match(/(?:^|\s)([1-9]00)(?:\s|\/|$)/);
+        if (weight && parseInt(weight[1], 10) >= 600) style.setProperty('font-weight', 'bold');
     }
 
-    // Recursively copy allowed content from `src` into `dest`, carrying the
-    // current bold state down through nested elements.
-    function cleanPasteInto(src, dest, inheritBold) {
-        src.childNodes.forEach(node => {
-            if (node.nodeType === Node.TEXT_NODE) {
-                const text = node.nodeValue;
-                if (!text) return;
-                dest.appendChild(inheritBold ? wrapBold(text) : document.createTextNode(text));
+    // Reading through element.style rather than the raw attribute string means
+    // the browser has already expanded shorthands into longhands and normalised
+    // the values, so `background: #fff url(x) no-repeat` needs no hand-rolled
+    // parser. The shorthand branches are a safety net for engines that keep a
+    // shorthand name during iteration.
+    function stripPastedStyle(el) {
+        if (!el.hasAttribute('style')) return;
+
+        const style = el.style;
+        const names = [];
+        for (let i = 0; i < style.length; i++) names.push(style.item(i));
+
+        names.forEach(name => {
+            const lower = String(name).toLowerCase();
+
+            if (lower.indexOf('--') === 0) {           // var() can hide a colour
+                style.removeProperty(name);
                 return;
             }
-            if (node.nodeType !== Node.ELEMENT_NODE) return; // skip comments etc.
-
-            const tag = node.tagName;
-            if (PASTE_SKIP_TAGS.has(tag)) return; // never emit <style>/<script> text
-
-            // Resolve bold for this element: tag sets it on, inline style can
-            // turn it on or explicitly off, otherwise inherit.
-            let bold = inheritBold;
-            if (tag === 'B' || tag === 'STRONG') bold = true;
-            const styleBold = boldFromStyle(node);
-            if (styleBold !== null) bold = styleBold;
-
-            if (tag === 'A') {
-                const href = (node.getAttribute('href') || '').trim();
-                if (ALLOWED_LINK_PROTOCOLS.test(href)) {
-                    const a = document.createElement('a');
-                    a.setAttribute('href', href);
-                    cleanPasteInto(node, a, bold);
-                    dest.appendChild(a);
-                } else {
-                    cleanPasteInto(node, dest, bold); // bad/relative href: keep text only
-                }
+            if (lower === 'font') {                    // typeface shorthand
+                preserveFontShorthandTraits(style, style.getPropertyValue(name));
+                style.removeProperty(name);
                 return;
             }
-
-            if (tag === 'UL' || tag === 'OL') {
-                const list = document.createElement(tag.toLowerCase());
-                cleanPasteInto(node, list, inheritBold);
-                if (list.childNodes.length) dest.appendChild(list);
+            if (FONT_FAMILY_PROPERTIES.has(lower)) {
+                style.removeProperty(name);
                 return;
             }
-
-            if (tag === 'LI') {
-                const li = document.createElement('li');
-                cleanPasteInto(node, li, bold);
-                dest.appendChild(li);
+            if (COLOUR_PROPERTIES.has(lower) || /(?:^|-)color$/.test(lower)) {
+                style.removeProperty(name);
                 return;
             }
-
-            if (tag === 'BR') {
-                dest.appendChild(document.createElement('br'));
-                return;
+            if (COLOUR_SHORTHANDS.has(lower)) {
+                const priority = style.getPropertyPriority(name);
+                const cleaned  = stripColourTokens(style.getPropertyValue(name));
+                style.removeProperty(name);
+                if (cleaned) style.setProperty(name, cleaned, priority);
             }
-
-            // Anything else: discard the element, keep its contents.
-            cleanPasteInto(node, dest, bold);
-            if (PASTE_BLOCK_TAGS.has(tag)) dest.appendChild(document.createElement('br'));
         });
+
+        if (!style.length) el.removeAttribute('style');
+    }
+
+    function sanitizePastedElement(el) {
+        // Snapshot the attribute list: removing while iterating a live
+        // NamedNodeMap skips entries.
+        [...el.attributes].forEach(attr => {
+            const name  = attr.name.toLowerCase();
+            const value = (attr.value || '').trim();
+
+            if (name.indexOf('on') === 0) {            // inline event handlers
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if (name === 'class' || name === 'id') {   // could match a host rule
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if (COLOUR_ATTRIBUTES.has(name) || FONT_ATTRIBUTES.has(name)) {
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if (URL_ATTRIBUTES.has(name)) {
+                if (name === 'background' || name === 'action' || name === 'formaction' || name === 'data') {
+                    el.removeAttribute(attr.name);     // background image or form target
+                    return;
+                }
+                const ok = (name === 'src' || name === 'srcset')
+                    ? ALLOWED_IMAGE_PROTOCOLS.test(value)
+                    : ALLOWED_LINK_PROTOCOLS.test(value);
+                if (!ok) el.removeAttribute(attr.name);
+                return;
+            }
+        });
+
+        stripPastedStyle(el);
     }
 
     function sanitizeClipboardHtml(html) {
         // DOMParser doesn't load images or run scripts, so this is a safe way
         // to turn the clipboard string into a walkable tree.
         const doc  = new DOMParser().parseFromString(html, 'text/html');
-        const frag = document.createDocumentFragment();
-        cleanPasteInto(doc.body, frag, false);
+        const body = doc.body;
+        if (!body) return '';
 
-        const container = document.createElement('div');
-        container.appendChild(frag);
+        // Drop executable and interactive nodes with everything inside them.
+        body.querySelectorAll(PASTE_DROP_SELECTOR).forEach(el => el.remove());
 
-        // Collapse the <br>s left behind by unwrapping block elements so we
-        // don't inject stacks of blank lines, and trim leading/trailing breaks.
-        container.innerHTML = container.innerHTML
-            .replace(/(?:<br\s*\/?>\s*){2,}/gi, '<br>')
-            .replace(/^(?:\s*<br\s*\/?>)+/i, '')
-            .replace(/(?:<br\s*\/?>\s*)+$/i, '');
+        // Word and Outlook wrap large blocks in conditional comments. Remove
+        // comment nodes so none of that leaks back out as markup.
+        const walker   = doc.createTreeWalker(body, NodeFilter.SHOW_COMMENT, null);
+        const comments = [];
+        while (walker.nextNode()) comments.push(walker.currentNode);
+        comments.forEach(node => node.parentNode && node.parentNode.removeChild(node));
 
-        return container.innerHTML.trim();
+        body.querySelectorAll('*').forEach(sanitizePastedElement);
+
+        return body.innerHTML.trim();
     }
 
     function handleEditorPaste(event) {
@@ -664,7 +803,7 @@ html.fd-dark .fr-view pre {
 
         const html = clipboardData.getData('text/html');
         const text = clipboardData.getData('text/plain');
-        if (!html && !text) return; // image or non-text content — let Froala handle it
+        if (!html && !text) return; // image or non-text content, let Froala handle it
 
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -706,12 +845,12 @@ html.fd-dark .fr-view pre {
                     'ticket-new-border'
                 );
 
-                const ticketText  = mainContent.textContent;
-                const ticketStatus = detectStatus(ticketText);
+                const ticketText    = mainContent.textContent;
+                const ticketStatus  = detectStatus(ticketText);
                 const listContainer = cardElement.closest('.tickets__list');
 
                 if (listContainer) {
-                    // CSS handles all the actual styling — JS just announces
+                    // CSS handles all the actual styling. JS just announces
                     // what status this card has and which mode is active.
                     listContainer.setAttribute('data-status', ticketStatus);
                     listContainer.setAttribute('data-style-mode', currentMode);
@@ -719,11 +858,11 @@ html.fd-dark .fr-view pre {
                     if (listContainer.style.background) listContainer.style.background = '';
                 }
 
-                const dueInfo  = extractDueInfo(ticketText);
-                const tagNodes = [...mainContent.querySelectorAll('span.tag,span[class^="tag--"],.list-item')];
-                const tags     = tagNodes.map(el => el.textContent.trim());
+                const dueInfo   = extractDueInfo(ticketText);
+                const tagNodes  = [...mainContent.querySelectorAll('span.tag,span[class^="tag--"],.list-item')];
+                const tags      = tagNodes.map(el => el.textContent.trim());
                 const tagsLower = tags.join(' ').toLowerCase();
-                const urgent   = isUrgent(ticketText, dueInfo, tagsLower);
+                const urgent    = isUrgent(ticketText, dueInfo, tagsLower);
 
                 mainContent.classList.toggle(
                     'ticket-new-border',
