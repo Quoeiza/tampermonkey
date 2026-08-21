@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.12
-// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour and font family.
+// @version      2.13
+// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour, font family and font size.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
@@ -271,10 +271,11 @@ html.fd-dark .fr-view pre {
     background-color: var(--fd-card-bg) !important;
 }
 
-/* Pasted content arrives with colour and font family stripped, so it
-   inherits the editor's own typeface and text colour. Code blocks are
-   the one case where the typeface carries meaning, so restore monospace
-   from our own rule rather than from whatever the source specified. */
+/* Pasted content arrives with colour, font family and font size stripped,
+   so it inherits the editor's own typeface, size and text colour. Code
+   blocks are the one case where the typeface carries meaning, so restore
+   monospace from our own rule rather than from whatever the source
+   specified. */
 .fr-element pre, .fr-element code, .fr-element kbd, .fr-element samp, .fr-element tt,
 .fr-view pre, .fr-view code, .fr-view kbd, .fr-view samp, .fr-view tt {
     font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
@@ -544,14 +545,13 @@ html.fd-dark .fr-view pre {
     }
 
     // ============================
-    // Paste sanitisation: colour and font family only
+    // Paste sanitisation: colour, font family and font size only
     // ============================
     // Earlier versions used an element allow-list, which cost far more
     // formatting than the problem warranted. The model is now inverted.
     // Structure and formatting are preserved as pasted (tables, code blocks,
     // lists, headings, bold, italics, underline, strikethrough, links,
-    // images, alignment, sizes), and the sanitiser removes exactly two
-    // things.
+    // images, alignment), and the sanitiser removes exactly three things.
     //
     // Colour, in every form it can arrive:
     //   1. Inline colour longhands: color, background-color, border-*-color,
@@ -567,14 +567,21 @@ html.fd-dark .fr-view pre {
     //   6. Presentational colour attributes: bgcolor, <font color>, text,
     //      link, vlink, alink, bordercolor, and the SVG fill/stroke family.
     //
-    // Font family, in the three forms it can arrive:
-    //   1. The font-family longhand.
+    // Font family and font size, in the forms they can arrive:
+    //   1. The font-family and font-size longhands, plus the size modifiers
+    //      that travel with them (font-size-adjust, line-height, and the
+    //      relative -webkit-text-size-adjust). Line-height goes because a
+    //      leading lifted from a source document is meaningless once the
+    //      size it was set against has gone.
     //   2. The `font` shorthand. Browsers normally expand it into longhands
     //      when the style attribute is parsed, but where the shorthand name
     //      survives iteration we drop it and re-apply only its weight and
     //      italic tokens, so bold written as `font: bold 12px Arial` is not
-    //      lost along with the typeface.
-    //   3. The legacy <font face="..."> attribute.
+    //      lost along with the typeface and size.
+    //   3. The legacy <font face="..."> and <font size="..."> attributes.
+    //   4. <big> and <small>, which resize purely through the element name
+    //      and so leave nothing for a style pass to strip. They are unwrapped
+    //      and their contents kept in place.
     //
     // Both passes also drop class and id, because a pasted class can match a
     // Freshdesk or Froala rule and reintroduce what was just removed. The
@@ -601,13 +608,16 @@ html.fd-dark .fr-view pre {
         'form', 'input', 'button', 'select', 'textarea', 'option'
     ].join(',');
 
+    // Kept, but with the tag itself removed, since the tag is the size.
+    const SIZE_ELEMENT_SELECTOR = 'big,small';
+
     // Presentational attributes whose only job is colour or typeface.
     const COLOUR_ATTRIBUTES = new Set([
         'bgcolor', 'color', 'bordercolor', 'bordercolorlight', 'bordercolordark',
         'text', 'link', 'vlink', 'alink',
         'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
     ]);
-    const FONT_ATTRIBUTES = new Set(['face']);
+    const FONT_ATTRIBUTES = new Set(['face', 'size']);
 
     // Attributes that point at a resource and need a protocol check.
     const URL_ATTRIBUTES = new Set([
@@ -623,8 +633,10 @@ html.fd-dark .fr-view pre {
         'accent-color', 'scrollbar-color', 'caret-color',
         'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
     ]);
-    const FONT_FAMILY_PROPERTIES = new Set([
-        'font-family', 'src', '-webkit-font-smoothing', '-moz-osx-font-smoothing'
+    const FONT_PROPERTIES = new Set([
+        'font-family', 'src', '-webkit-font-smoothing', '-moz-osx-font-smoothing',
+        'font-size', 'font-size-adjust', 'line-height',
+        '-webkit-text-size-adjust', 'text-size-adjust'
     ]);
 
     // Shorthands kept, but with any colour token taken out of the value.
@@ -712,12 +724,12 @@ html.fd-dark .fr-view pre {
                 style.removeProperty(name);
                 return;
             }
-            if (lower === 'font') {                    // typeface shorthand
+            if (lower === 'font') {                    // typeface and size shorthand
                 preserveFontShorthandTraits(style, style.getPropertyValue(name));
                 style.removeProperty(name);
                 return;
             }
-            if (FONT_FAMILY_PROPERTIES.has(lower)) {
+            if (FONT_PROPERTIES.has(lower)) {
                 style.removeProperty(name);
                 return;
             }
@@ -771,6 +783,19 @@ html.fd-dark .fr-view pre {
         stripPastedStyle(el);
     }
 
+    // <big> and <small> carry their size in the tag name, so removing styles
+    // leaves them untouched. Replace each with its own children, innermost
+    // first, so a nested pair collapses cleanly in one pass.
+    function unwrapSizeElements(body) {
+        const nodes = [...body.querySelectorAll(SIZE_ELEMENT_SELECTOR)].reverse();
+        nodes.forEach(el => {
+            const parent = el.parentNode;
+            if (!parent) return;
+            while (el.firstChild) parent.insertBefore(el.firstChild, el);
+            parent.removeChild(el);
+        });
+    }
+
     function sanitizeClipboardHtml(html) {
         // DOMParser doesn't load images or run scripts, so this is a safe way
         // to turn the clipboard string into a walkable tree.
@@ -789,6 +814,7 @@ html.fd-dark .fr-view pre {
         comments.forEach(node => node.parentNode && node.parentNode.removeChild(node));
 
         body.querySelectorAll('*').forEach(sanitizePastedElement);
+        unwrapSizeElements(body);
 
         return body.innerHTML.trim();
     }
