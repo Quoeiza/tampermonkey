@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.13
+// @version      2.14
 // @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour, font family and font size.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -17,32 +17,27 @@
     // ============================
     // Configuration and state
     // ============================
-    const STORAGE_KEY  = 'fd_card_style_mode';
-    const STYLE_MODES  = ['gradient', 'fill', 'none'];   // CSS-friendly identifiers
-    const STYLE_LABELS = ['Gradient', 'Fill', 'None'];   // Human labels for the dropdown
-    const STATUSES     = ['Open', 'Pending', 'On Hold', 'Resolved', 'Closed'];
+    const STORAGE_KEY = 'fd_card_style_mode';
+    const STYLE_MODES = ['gradient', 'fill', 'none'];
+    const STATUSES    = ['Open', 'Pending', 'On Hold', 'Resolved', 'Closed'];
+    const label       = mode => mode[0].toUpperCase() + mode.slice(1);
 
-    let styleMode = parseInt(localStorage.getItem(STORAGE_KEY), 10);
-    if (![0, 1, 2].includes(styleMode)) {
-        styleMode = 2;
-        localStorage.setItem(STORAGE_KEY, '2');
-    }
+    // Stored value is the mode name; a legacy numeric value migrates by index.
+    const stored = localStorage.getItem(STORAGE_KEY);
+    let styleMode = STYLE_MODES[stored] || (STYLE_MODES.includes(stored) ? stored : 'none');
 
     // ============================
     // CSS injection
     // ============================
-    // All theming runs through CSS custom properties. Switching between light
-    // and dark mode swaps a single block of variables, so the JS stays
-    // theme-agnostic. It only writes data-* attributes onto cards and lets
-    // CSS handle the rest. CSS variables inherit through Shadow DOM, so the
-    // dropdown button inside <ticket-top-nav> follows the active theme too.
+    // All theming runs through CSS custom properties, so the JS only ever writes
+    // data-* attributes onto cards and lets CSS decide what they look like.
     const css = `
 :root {
     --fd-status-open:        #ffe4e1;
     --fd-status-pending:     #fff6cc;
     --fd-status-on-hold:     #e8f4fc;
     --fd-status-resolved:    #ddfddf;
-    --fd-status-closed:      #ddfddf;
+    --fd-status-closed:      #e6e8ea;
     --fd-gradient-fade:      #fff;
     --fd-card-bg:            #fff;
     --fd-card-shadow:        2px 4px 6px 0 #cfd7df;
@@ -60,15 +55,13 @@
     --fd-menu-shadow:        0 8px 16px 0 rgba(0,0,0,.2);
 }
 
+/* Status hues sit on a near-black card so they read as accents, not panels. */
 html.fd-dark {
-    /* Status hues sit on a near-black card so they read as accents,
-       not panels. Buttons/menus step up a notch in lightness to keep
-       hierarchy without reintroducing the navy tint. */
     --fd-status-open:        #4a2a2a;
     --fd-status-pending:     #4a3f1a;
     --fd-status-on-hold:     #1e3a52;
     --fd-status-resolved:    #1e4030;
-    --fd-status-closed:      #1e4030;
+    --fd-status-closed:      #383838;
     --fd-gradient-fade:      #1a1a1a;
     --fd-card-bg:            #1a1a1a;
     --fd-card-shadow:        2px 4px 6px 0 rgba(0,0,0,.5);
@@ -88,13 +81,21 @@ html.fd-dark {
 
 /* Layout overrides for the ticket list page */
 .col-md-12 { padding-left: 0; padding-right: 0; }
+.col-md-9 { width: auto; }
 .left-nav-mfe-wrapper, .left-nav-mfe { width: 240px !important; }
 .ember-light-table table { border-collapse: separate; }
-.hidden-overdue-badge { display: none !important; }
+.hidden-overdue-badge, .avatar-image { display: none !important; }
 .avatar-icon.avatar-icon--rounded .avatar-block { margin-left: 9px; }
-.avatar-image { display: none !important; }
+.current__item--active td:first-child::before { width: 0; }
+.__module-tickets__assign-to .element-flex > div:first-child { display: none; }
+.app-content-area, body { min-width: 958px; }
 
-/* Escalation indicator emoji prefixes, set via data-esc by the script */
+/* Re-balance Freshdesk's hard-coded column widths */
+[style*="width: 400px"] { width: 120px !important; }
+[style*="width: 120px"] { width: 200px !important; }
+[style*="width: 12vw"]  { width: 80px !important; }
+
+/* Escalation indicators, driven by data-esc written by the script */
 .ticket-info[data-esc]::before {
     display: inline-block;
     margin-right: 4px;
@@ -105,14 +106,6 @@ html.fd-dark {
 .ticket-info[data-esc="L1"]::before   { content: "⚠️"; }
 .ticket-info[data-esc="L2"]::before   { content: "🚨"; }
 .ticket-info[data-esc="L1L2"]::before { content: "⚠️🚨"; }
-
-.current__item--active td:first-child::before { width: 0; }
-.__module-tickets__assign-to .element-flex > div:first-child { display: none; }
-
-/* Re-balance Freshdesk's hard-coded column widths */
-[style*="width: 400px"] { width: 120px !important; }
-[style*="width: 120px"] { width: 200px !important; }
-[style*="width: 12vw"]  { width: 80px !important; }
 
 /* Card chrome */
 .tickets__list {
@@ -128,32 +121,30 @@ html.fd-dark {
     box-shadow: var(--fd-card-shadow);
 }
 
-/* Status-driven card backgrounds. The card gets data-status from the script,
-   then CSS picks the matching pastel and feeds it into the chosen style mode.
-   This isolates "what's the colour for this status" from "how is the colour
-   applied", so switching themes only touches the colour, not the layout. */
-.tickets__list[data-status="Open"]    { --fd-status-bg: var(--fd-status-open); }
-.tickets__list[data-status="Pending"] { --fd-status-bg: var(--fd-status-pending); }
-.tickets__list[data-status="On Hold"] { --fd-status-bg: var(--fd-status-on-hold); }
-.tickets__list[data-status="Resolved"]{ --fd-status-bg: var(--fd-status-resolved); }
-.tickets__list[data-status="Closed"]  { --fd-status-bg: var(--fd-status-closed); }
+/* data-status picks the colour, data-style-mode decides how it is applied. */
+.tickets__list[data-status="Open"]     { --fd-status-bg: var(--fd-status-open); }
+.tickets__list[data-status="Pending"]  { --fd-status-bg: var(--fd-status-pending); }
+.tickets__list[data-status="On Hold"]  { --fd-status-bg: var(--fd-status-on-hold); }
+.tickets__list[data-status="Resolved"] { --fd-status-bg: var(--fd-status-resolved); }
+.tickets__list[data-status="Closed"]   { --fd-status-bg: var(--fd-status-closed); }
 
 .tickets__list[data-style-mode="gradient"] {
-    background: linear-gradient(90deg, var(--fd-status-bg) 0, var(--fd-gradient-fade) 800px) !important;
+    background: linear-gradient(90deg, var(--fd-status-bg, var(--fd-card-bg)) 0, var(--fd-gradient-fade) 800px) !important;
 }
 .tickets__list[data-style-mode="fill"] {
-    background: var(--fd-status-bg) !important;
+    background: var(--fd-status-bg, var(--fd-card-bg)) !important;
 }
 .tickets__list[data-style-mode="none"] {
     background: var(--fd-card-bg) !important;
 }
 
 /* Card content layout */
-.__module-tickets__tickets-list__tickets-table__ticket-item .list-content {
-    padding-left: 0 !important;
-}
-.tickets__list .list-content--main { padding-right: 0; background: transparent !important; }
+.__module-tickets__tickets-list__tickets-table__ticket-item .list-content { padding-left: 0 !important; }
 .tickets__list .list-content { padding-top: 0; padding-bottom: 0; }
+.tickets__list .list-content--main { padding-right: 0; background: transparent !important; }
+.list-content--info { background: transparent !important; }
+.list-content-wrap { padding: 16px; }
+.list-check-wrap { position: relative; }
 .tickets__list .ticket-title-row {
     display: flex;
     align-items: center !important;
@@ -170,9 +161,7 @@ html.fd-dark {
     text-align: right;
 }
 
-/* Text colours forced through variables so they invert with the theme.
-   Freshdesk's own dark-mode CSS doesn't reach these elements consistently,
-   so we override them outright. */
+/* Freshdesk's own dark-mode CSS misses these, so force them through variables. */
 .wordbreak-fix {
     color: var(--fd-text-title) !important;
     font-size: 18px;
@@ -180,17 +169,14 @@ html.fd-dark {
 }
 .ticket-info,
 .ticket-info .user,
-.ticket-info [data-test-id="user-name"] {
-    color: var(--fd-text-info) !important;
-}
+.ticket-info [data-test-id="user-name"] { color: var(--fd-text-info) !important; }
 .ticket-info { padding-top: 6px; font-size: 14px; }
 
-/* Priority/new-ticket left border */
+/* New-ticket left border, drawn as an overlay so the card radius is kept */
 .ticket-due-soon-border,
 .ticket-due-today-border,
 .ticket-priority-border,
 .ticket-new-border { border-left: none !important; }
-.ticket-priority-border::before,
 .ticket-new-border::before {
     content: "";
     position: absolute;
@@ -202,13 +188,15 @@ html.fd-dark {
     z-index: 1;
 }
 
-/* Hide Freshdesk's own tag row, since we redraw escalation as an emoji prefix */
+/* Freshdesk's tag rows go, since escalation is redrawn as an emoji prefix */
+.tickets__list .ticket-tag-wrap,
+.tickets__list .status-tag-wrap,
 .ticket-tag-toprow,
 .ticket-tag-toprow > .tag,
 .ticket-tag-toprow > span[class^="tag--"],
 .ticket-tag-toprow > .ticket-ribbon { display: none !important; }
 
-.list-check-wrap { position: relative; }
+/* Filter controls */
 .list-filter-wrap .list-filter__item,
 .list-filter-wrap .list-filter__priority,
 .list-filter-wrap .list-filter__status { width: 170px; }
@@ -217,8 +205,7 @@ html.fd-dark {
 .list-filter-wrap .list-filter__item--icon-overlay { background: transparent; }
 .list-filter-wrap .list-filter__priority .list-filter__item--icon-overlay { top: 1px; }
 
-/* Strip Freshdesk's hover backgrounds on the filter controls so the
-   card colour shows through cleanly */
+/* Strip Freshdesk's hover backgrounds so the card colour shows through */
 .list-filter__item, .list-filter__item:hover, .list-filter__item:focus, .list-filter__item:active,
 .list-filter__priority, .list-filter__priority:hover, .list-filter__priority:focus, .list-filter__priority:active,
 .list-filter__status, .list-filter__status:hover, .list-filter__status:focus, .list-filter__status:active,
@@ -230,60 +217,34 @@ html.fd-dark {
     background-color: transparent !important;
 }
 
-.list-content-wrap { padding: 16px; }
-.list-content--info { background: transparent !important; }
-.app-content-area, body { min-width: 958px; }
-.col-md-9 { width: auto; }
-
-/* ----- Dark-mode email content normalisation -----
-   Customers' email clients (Outlook/M365 in particular) inline
-   color: rgb(0, 0, 0) and color: black on every paragraph, plus
-   white backgrounds on signature tables. Both become unreadable
-   against the dark card. Scope is limited to the conversation
-   content so we don't touch composer, sidebar, or chrome. */
+/* Dark mode: customer email clients inline black text and white signature
+   tables, both unreadable on a dark card. Scoped to conversation content. */
 html.fd-dark .ticket-details__conversation__content,
 html.fd-dark .ticket-details__conversation__content *,
 html.fd-dark .ticket-note-typography,
-html.fd-dark .ticket-note-typography * {
-    color: var(--fd-text-info) !important;
-}
+html.fd-dark .ticket-note-typography * { color: var(--fd-text-info) !important; }
 html.fd-dark .ticket-details__conversation__content a,
-html.fd-dark .ticket-note-typography a {
-    color: #6ea8ff !important; /* visible link blue against black */
-}
-/* Light backgrounds inlined by email clients (signature tables in
-   particular) get marked with .fd-bg-darkened by normalizeEmailBackgrounds.
-   The class is added to anything brighter than ~85% luminance, which
-   covers pure white through about #d8d8d8. background-image is also
-   stripped to neutralise any light gradient that came along with the
-   shorthand. */
+html.fd-dark .ticket-note-typography a { color: #6ea8ff !important; }
+
+/* Bright inline backgrounds are tagged by normalizeEmailBackgrounds; the
+   background-image reset neutralises any gradient that came with them. */
 html.fd-dark .fd-bg-darkened {
     background-color: var(--fd-card-bg) !important;
     background-image: none !important;
 }
 
-/* Froala reply/note editor: <pre> code blocks inherit Freshdesk's
-   --editor-code-block-bg, which resolves to a light blue. That isn't
-   an inline style so the JS normaliser can't see it, so fix it via CSS
-   and keep the editor and the rendered conversation in step. */
+/* Froala's code-block background is a stylesheet rule, so the JS normaliser
+   can't see it and it has to be fixed here to match the conversation. */
 html.fd-dark .fr-element pre,
-html.fd-dark .fr-view pre {
-    background-color: var(--fd-card-bg) !important;
-}
+html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
 
-/* Pasted content arrives with colour, font family and font size stripped,
-   so it inherits the editor's own typeface, size and text colour. Code
-   blocks are the one case where the typeface carries meaning, so restore
-   monospace from our own rule rather than from whatever the source
-   specified. */
+/* Pasted content loses its typeface, so restore monospace where it means something. */
 .fr-element pre, .fr-element code, .fr-element kbd, .fr-element samp, .fr-element tt,
 .fr-view pre, .fr-view code, .fr-view kbd, .fr-view samp, .fr-view tt {
     font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
-/* Tables that carried no border description of their own would otherwise
-   paste in as an unreadable run of words, so give them a hairline in
-   currentColor, which follows whichever theme is active. */
+/* Borderless pasted tables would read as a run of words, so give them a hairline. */
 .fr-element table:not([style*="border"]) td,
 .fr-element table:not([style*="border"]) th,
 .fr-view table:not([style*="border"]) td,
@@ -299,9 +260,8 @@ html.fd-dark .fr-view pre {
 }
 `;
 
-    // Same CSS used in both the main document and the shadow root containing
-    // the top nav. CSS variables inherit through the shadow boundary, so the
-    // theme just flows in without any extra wiring.
+    // Injected into both the document and the top-nav shadow root. Custom
+    // properties inherit through the shadow boundary, so theming needs no wiring.
     const dropdownCss = `
 .fd-style-dropdown {
     position: relative;
@@ -358,564 +318,265 @@ html.fd-dark .fr-view pre {
     // ============================
     // Theme detection
     // ============================
-    // Rather than guess Freshdesk's class names or data attributes (which
-    // change between releases), measure the computed background colour of
-    // the body. If the page is dark, our overlay should be dark too. This
-    // adapts to whatever mechanism Freshdesk uses, including future ones.
-    function parseColorToRgba(colorStr) {
-        if (!colorStr) return null;
-        const str = String(colorStr).trim();
-
-        // rgb(r,g,b) and rgba(r,g,b,a), tolerant of whitespace and decimals
-        const rgbMatch = str.match(
-            /rgba?\s*\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+(?:\.\d+)?))?\s*\)/i
-        );
-        if (rgbMatch) {
-            return {
-                r: parseFloat(rgbMatch[1]),
-                g: parseFloat(rgbMatch[2]),
-                b: parseFloat(rgbMatch[3]),
-                a: rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1
-            };
-        }
-
-        // #rgb and #rrggbb hex
-        if (str.charAt(0) === '#') {
-            const hex = str.slice(1);
-            if (hex.length === 3) {
-                return {
-                    r: parseInt(hex[0] + hex[0], 16),
-                    g: parseInt(hex[1] + hex[1], 16),
-                    b: parseInt(hex[2] + hex[2], 16),
-                    a: 1
-                };
-            }
-            if (hex.length === 6) {
-                return {
-                    r: parseInt(hex.slice(0, 2), 16),
-                    g: parseInt(hex.slice(2, 4), 16),
-                    b: parseInt(hex.slice(4, 6), 16),
-                    a: 1
-                };
-            }
-            return null;
-        }
-
-        // Named colours that turn up in email signatures
-        const lower = str.toLowerCase();
-        if (lower === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
-        if (lower === 'white')       return { r: 255, g: 255, b: 255, a: 1 };
-        if (lower === 'black')       return { r: 0, g: 0, b: 0, a: 1 };
-
-        return null;
-    }
-
-    function luminance(rgba) {
-        return (0.2126 * rgba.r + 0.7152 * rgba.g + 0.0722 * rgba.b) / 255;
-    }
-
-    function detectDarkMode() {
-        const measure = el => {
-            const rgba = parseColorToRgba(getComputedStyle(el).backgroundColor);
-            if (!rgba || rgba.a === 0) return null;
-            return luminance(rgba);
-        };
-        const lum = measure(document.body) ?? measure(document.documentElement);
-        return lum != null && lum < 0.5;
+    // Freshdesk's dark-mode mechanism changes between releases, so measure the
+    // computed background rather than guessing class names. Computed colours are
+    // always rgb()/rgba(), so scraping the numbers is enough. Null means
+    // transparent or unreadable.
+    function luminance(color) {
+        const parts = String(color).match(/[\d.]+/g);
+        if (!parts) return null;
+        const [r, g, b, a = 1] = parts.map(Number);
+        return a < 0.5 ? null : (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     }
 
     let isDark = false;
     function syncTheme() {
-        const next = detectDarkMode();
-        if (next !== isDark) {
-            isDark = next;
-            document.documentElement.classList.toggle('fd-dark', isDark);
-            // Flipping into dark mode: normalise any email content already
-            // on the page so customer-authored white backgrounds get caught
-            // without waiting for the next mutation.
-            if (isDark) normalizeEmailBackgrounds();
-        }
-    }
-
-    // ============================
-    // Utility functions
-    // ============================
-    function extractDueInfo(text) {
-        const lower = text.toLowerCase();
-        const parseValue = val => (val === 'a' || val === 'an' ? 1 : parseInt(val, 10));
-
-        const overdueMatch = lower.match(/overdue.*?(\d+|a|an)\s*(day|hour|minute|d|h|m)/i);
-        if (overdueMatch) {
-            return { type: 'overdue', value: parseValue(overdueMatch[1]), unit: overdueMatch[2] };
-        }
-        const dueMatch = lower.match(/due.*?in.*?(\d+|a|an)\s*(day|hour|minute|d|h|m)/i);
-        return dueMatch ? { type: 'due', value: parseValue(dueMatch[1]), unit: dueMatch[2] } : null;
-    }
-
-    function applyEscState(rootElement, tags) {
-        const infoElement = rootElement.querySelector('.ticket-info');
-        if (!infoElement) return;
-        const hasL1 = tags.includes('L1-ESC');
-        const hasL2 = tags.includes('L2-ESC');
-        if (hasL1 && hasL2)   infoElement.setAttribute('data-esc', 'L1L2');
-        else if (hasL1)       infoElement.setAttribute('data-esc', 'L1');
-        else if (hasL2)       infoElement.setAttribute('data-esc', 'L2');
-        else                  infoElement.removeAttribute('data-esc');
-    }
-
-    function isUrgent(fullText, dueInfo, tagsText) {
-        if (dueInfo) {
-            if (dueInfo.type === 'overdue') return true;
-            if (dueInfo.type === 'due') {
-                const unitShort = (dueInfo.unit || '')[0];
-                if (unitShort === 'm') return true;
-                if (unitShort === 'h' && dueInfo.value <= 4) return true;
-                if (unitShort === 'd' && dueInfo.value === 1) return true;
-            }
-        }
-        if (tagsText.indexOf('new') > -1) return true;
-
-        if (fullText) {
-            const match = fullText.toLowerCase().match(/customer responded[\s\S]*?ago/);
-            if (match) {
-                const windowText  = match[0];
-                const recentShort = /\b(minute|min|minutes|mins|hour|hr|hours)\b/.test(windowText);
-                const recentLong  = /\b(day|days|week|weeks|month|months|year|years)\b/.test(windowText);
-                if (recentShort && !recentLong) return true;
-            }
-        }
-        return false;
-    }
-
-    function detectStatus(ticketText) {
-        // Whichever status keyword appears latest in the card text wins.
-        // The status label is rendered after the ticket title, so scanning
-        // by lastIndexOf prevents titles like "Form Not Opening" from
-        // falsely matching 'Open'.
-        return STATUSES.reduce(
-            (best, status) => {
-                const idx = ticketText.lastIndexOf(status);
-                return idx > best.idx ? { status, idx } : best;
-            },
-            { status: 'Open', idx: -1 }
-        ).status;
-    }
-
-    function hideTagElements(rootElement) {
-        rootElement
-            .querySelectorAll('.ticket-tag-wrap,.status-tag-wrap,.ticket-tag-toprow')
-            .forEach(el => { el.style.display = 'none'; });
+        const lum = luminance(getComputedStyle(document.body).backgroundColor)
+                 ?? luminance(getComputedStyle(document.documentElement).backgroundColor);
+        const next = lum != null && lum < 0.5;
+        if (next === isDark) return;
+        isDark = next;
+        document.documentElement.classList.toggle('fd-dark', isDark);
+        // Catch email content already on the page rather than waiting for a mutation.
+        if (isDark) normalizeEmailBackgrounds();
     }
 
     // ============================
     // Email body normalisation (dark mode only)
     // ============================
-    // Customer emails frequently inline near-white backgrounds: pure white
-    // from Outlook signature tables, off-whites like #fafafa or #f5f5f5 from
-    // email-client themes. Against the dark card these become bright
-    // rectangles. The CSS approach can't catch arbitrary shades (attribute
-    // selectors are exact substring matches), so we walk the email content,
-    // compute luminance for each inline background, and tag the bright ones
-    // with .fd-bg-darkened. The CSS rule then swaps them to near-black.
-    //
-    // Threshold (0.85) is chosen to catch white through ~#d8d8d8 without
-    // clobbering anything a customer might use as a deliberate light accent.
-    const EMAIL_CONTENT_SELECTOR =
-        '.ticket-details__conversation__content, .ticket-note-typography';
+    // Emails inline near-white backgrounds that glare against the dark card, in
+    // arbitrary shades that an attribute selector can't match. Anything brighter
+    // than ~85% luminance gets tagged for the CSS rule above. :not() stops
+    // reprocessing and prevents an observer feedback loop.
+    const EMAIL_BG_SELECTOR = ['.ticket-details__conversation__content', '.ticket-note-typography']
+        .map(root => `${root} [style*="background"]:not(.fd-bg-darkened)`).join(',');
 
     function normalizeEmailBackgrounds() {
         if (!isDark) return;
-        document.querySelectorAll(EMAIL_CONTENT_SELECTOR).forEach(container => {
-            // :not(.fd-bg-darkened) ensures we never reprocess an element
-            // we've already tagged, which both saves work and prevents the
-            // class-add from causing an observer feedback loop.
-            container
-                .querySelectorAll('[style*="background"]:not(.fd-bg-darkened)')
-                .forEach(el => {
-                    // getComputedStyle resolves both `background-color: X`
-                    // and `background:` shorthand to one normalised value,
-                    // so we don't need to parse the raw style string.
-                    const rgba = parseColorToRgba(getComputedStyle(el).backgroundColor);
-                    if (!rgba || rgba.a < 0.5) return; // transparent or unreadable
-                    if (luminance(rgba) > 0.85) {
-                        el.classList.add('fd-bg-darkened');
-                    }
-                });
+        document.querySelectorAll(EMAIL_BG_SELECTOR).forEach(el => {
+            if (luminance(getComputedStyle(el).backgroundColor) > 0.85) el.classList.add('fd-bg-darkened');
         });
     }
 
     // ============================
-    // Paste sanitisation: colour, font family and font size only
+    // Card data
     // ============================
-    // Earlier versions used an element allow-list, which cost far more
-    // formatting than the problem warranted. The model is now inverted.
-    // Structure and formatting are preserved as pasted (tables, code blocks,
-    // lists, headings, bold, italics, underline, strikethrough, links,
-    // images, alignment), and the sanitiser removes exactly three things.
-    //
-    // Colour, in every form it can arrive:
-    //   1. Inline colour longhands: color, background-color, border-*-color,
-    //      outline-color, caret-color, and anything else ending in -color.
-    //   2. Colour carried inside a shorthand (border, outline, column-rule,
-    //      text-decoration). The shorthand is kept and only its colour token
-    //      is dropped, so borders and underlines survive and fall back to
-    //      currentColor.
-    //   3. Backgrounds outright, gradients and background images included,
-    //      because a gradient is colour by another name.
-    //   4. Shadows, filters and blend modes, which can recolour or erase text.
-    //   5. Custom properties, which can smuggle a colour in through var().
-    //   6. Presentational colour attributes: bgcolor, <font color>, text,
-    //      link, vlink, alink, bordercolor, and the SVG fill/stroke family.
-    //
-    // Font family and font size, in the forms they can arrive:
-    //   1. The font-family and font-size longhands, plus the size modifiers
-    //      that travel with them (font-size-adjust, line-height, and the
-    //      relative -webkit-text-size-adjust). Line-height goes because a
-    //      leading lifted from a source document is meaningless once the
-    //      size it was set against has gone.
-    //   2. The `font` shorthand. Browsers normally expand it into longhands
-    //      when the style attribute is parsed, but where the shorthand name
-    //      survives iteration we drop it and re-apply only its weight and
-    //      italic tokens, so bold written as `font: bold 12px Arial` is not
-    //      lost along with the typeface and size.
-    //   3. The legacy <font face="..."> and <font size="..."> attributes.
-    //   4. <big> and <small>, which resize purely through the element name
-    //      and so leave nothing for a style pass to strip. They are unwrapped
-    //      and their contents kept in place.
-    //
-    // Both passes also drop class and id, because a pasted class can match a
-    // Freshdesk or Froala rule and reintroduce what was just removed. The
-    // source stylesheet never travels with the clipboard in any case.
-    //
-    // Script, style and other executable or interactive elements are dropped
-    // with their contents rather than unwrapped, so their guts can never be
-    // emitted as literal text. URLs are protocol-checked before being kept.
-    //
-    // Why window/capture: Froala registers its own paste handler on the editor
-    // element before this userscript runs, so theirs fires first at any element
-    // below window. Window is the top of the capture cascade and always fires
-    // first; combined with stopImmediatePropagation, Froala never sees it.
-    //
-    // execCommand is still the most reliable insertion path because it
-    // participates in the contenteditable native undo stack.
-    const ALLOWED_LINK_PROTOCOLS  = /^(?:https?:|mailto:|tel:|#)/i;
-    const ALLOWED_IMAGE_PROTOCOLS = /^(?:https?:|cid:|data:image\/)/i;
-
-    // Removed along with their contents: executable, interactive, metadata.
-    const PASTE_DROP_SELECTOR = [
-        'script', 'style', 'link', 'meta', 'title', 'base', 'noscript',
-        'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
-        'form', 'input', 'button', 'select', 'textarea', 'option'
-    ].join(',');
-
-    // Kept, but with the tag itself removed, since the tag is the size.
-    const SIZE_ELEMENT_SELECTOR = 'big,small';
-
-    // Presentational attributes whose only job is colour or typeface.
-    const COLOUR_ATTRIBUTES = new Set([
-        'bgcolor', 'color', 'bordercolor', 'bordercolorlight', 'bordercolordark',
-        'text', 'link', 'vlink', 'alink',
-        'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
-    ]);
-    const FONT_ATTRIBUTES = new Set(['face', 'size']);
-
-    // Attributes that point at a resource and need a protocol check.
-    const URL_ATTRIBUTES = new Set([
-        'href', 'src', 'srcset', 'background', 'xlink:href', 'action', 'formaction', 'data'
-    ]);
-
-    // Inline properties removed outright.
-    const COLOUR_PROPERTIES = new Set([
-        'color', '-webkit-text-fill-color', '-webkit-text-stroke',
-        '-webkit-text-stroke-color', 'text-emphasis', 'text-emphasis-color',
-        'background', 'background-color', 'background-image', 'background-blend-mode',
-        'box-shadow', 'text-shadow', 'filter', 'backdrop-filter', 'mix-blend-mode',
-        'accent-color', 'scrollbar-color', 'caret-color',
-        'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color'
-    ]);
-    const FONT_PROPERTIES = new Set([
-        'font-family', 'src', '-webkit-font-smoothing', '-moz-osx-font-smoothing',
-        'font-size', 'font-size-adjust', 'line-height',
-        '-webkit-text-size-adjust', 'text-size-adjust'
-    ]);
-
-    // Shorthands kept, but with any colour token taken out of the value.
-    const COLOUR_SHORTHANDS = new Set([
-        'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
-        'border-block', 'border-block-start', 'border-block-end',
-        'border-inline', 'border-inline-start', 'border-inline-end',
-        'outline', 'column-rule', 'text-decoration'
-    ]);
-
-    const CSS_NAMED_COLOURS = (
-        'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond ' +
-        'blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue ' +
-        'cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey ' +
-        'darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon ' +
-        'darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet ' +
-        'deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen ' +
-        'fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew ' +
-        'hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon ' +
-        'lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey ' +
-        'lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey ' +
-        'lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine ' +
-        'mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen ' +
-        'mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite ' +
-        'navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen ' +
-        'paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple ' +
-        'rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell ' +
-        'sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan ' +
-        'teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen ' +
-        'transparent currentcolor'
-    ).split(' ');
-
-    // Colour functions, gradients included, matched with one level of nesting
-    // so an rgb() inside a gradient stop list is consumed with it.
-    const COLOUR_FUNCTION_RE = new RegExp(
-        '\\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|' +
-        '(?:repeating-)?(?:linear|radial|conic)-gradient)' +
-        '\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)',
-        'gi'
-    );
-    const HEX_COLOUR_RE   = /#[0-9a-f]{3,8}\b/gi;
-    const NAMED_COLOUR_RE = new RegExp('\\b(?:' + CSS_NAMED_COLOURS.join('|') + ')\\b', 'gi');
-
-    // Only ever applied to the shorthands listed above, so keyword values such
-    // as "solid" survive and unrelated properties are never touched.
-    function stripColourTokens(value) {
-        return String(value)
-            .replace(COLOUR_FUNCTION_RE, ' ')
-            .replace(HEX_COLOUR_RE, ' ')
-            .replace(NAMED_COLOUR_RE, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
+    // The status control is the only authoritative source: the card body carries
+    // SLA phrases like "Resolved on time" that describe the outcome, not the state.
+    // Hovering swaps the plain label for a power-select trigger, so read whichever
+    // of the two is currently rendered.
+    function detectStatus(card) {
+        const text = card.querySelector('.list-filter__status')?.textContent.trim();
+        return text ? STATUSES.find(status => text.startsWith(status)) : null;
     }
 
-    // Pull weight and italic back out of a `font` shorthand before it is
-    // discarded. Size and line-height go with the typeface, since a size
-    // lifted from a source document is meaningless without its font.
-    function preserveFontShorthandTraits(style, value) {
-        const raw = String(value).toLowerCase();
-        if (/\b(?:italic|oblique)\b/.test(raw)) style.setProperty('font-style', 'italic');
-        if (/\bbold(?:er)?\b/.test(raw)) {
-            style.setProperty('font-weight', 'bold');
-            return;
+    function isUrgent(text, tagsLower) {
+        const lower = text.toLowerCase();
+        if (tagsLower.includes('new')) return true;
+
+        // A bare "overdue" isn't enough, since the hidden overdue badge carries the word.
+        if (/overdue.*?(?:\d+|an?)\s*(?:day|hour|minute|d|h|m)/.test(lower)) return true;
+
+        const due = lower.match(/due.*?in.*?(\d+|an?)\s*(day|hour|minute|d|h|m)/);
+        if (due) {
+            const value = due[1].startsWith('a') ? 1 : parseInt(due[1], 10);
+            const unit  = due[2][0];
+            if (unit === 'm' || (unit === 'h' && value <= 4) || (unit === 'd' && value === 1)) return true;
         }
-        const weight = raw.match(/(?:^|\s)([1-9]00)(?:\s|\/|$)/);
-        if (weight && parseInt(weight[1], 10) >= 600) style.setProperty('font-weight', 'bold');
+
+        // Recent customer replies only: the window must name minutes or hours and nothing longer.
+        const replied = lower.match(/customer responded[\s\S]*?ago/);
+        return !!replied
+            && /\b(?:mins?|minutes?|hrs?|hours?)\b/.test(replied[0])
+            && !/\b(?:days?|weeks?|months?|years?)\b/.test(replied[0]);
     }
 
-    // Reading through element.style rather than the raw attribute string means
-    // the browser has already expanded shorthands into longhands and normalised
-    // the values, so `background: #fff url(x) no-repeat` needs no hand-rolled
-    // parser. The shorthand branches are a safety net for engines that keep a
-    // shorthand name during iteration.
-    function stripPastedStyle(el) {
-        if (!el.hasAttribute('style')) return;
-
-        const style = el.style;
-        const names = [];
-        for (let i = 0; i < style.length; i++) names.push(style.item(i));
-
-        names.forEach(name => {
-            const lower = String(name).toLowerCase();
-
-            if (lower.indexOf('--') === 0) {           // var() can hide a colour
-                style.removeProperty(name);
-                return;
-            }
-            if (lower === 'font') {                    // typeface and size shorthand
-                preserveFontShorthandTraits(style, style.getPropertyValue(name));
-                style.removeProperty(name);
-                return;
-            }
-            if (FONT_PROPERTIES.has(lower)) {
-                style.removeProperty(name);
-                return;
-            }
-            if (COLOUR_PROPERTIES.has(lower) || /(?:^|-)color$/.test(lower)) {
-                style.removeProperty(name);
-                return;
-            }
-            if (COLOUR_SHORTHANDS.has(lower)) {
-                const priority = style.getPropertyPriority(name);
-                const cleaned  = stripColourTokens(style.getPropertyValue(name));
-                style.removeProperty(name);
-                if (cleaned) style.setProperty(name, cleaned, priority);
-            }
-        });
-
-        if (!style.length) el.removeAttribute('style');
+    function applyEscState(card, tags) {
+        const info = card.querySelector('.ticket-info');
+        if (!info) return;
+        const esc = (tags.includes('L1-ESC') ? 'L1' : '') + (tags.includes('L2-ESC') ? 'L2' : '');
+        if (esc) info.setAttribute('data-esc', esc);
+        else info.removeAttribute('data-esc');
     }
 
-    function sanitizePastedElement(el) {
-        // Snapshot the attribute list: removing while iterating a live
-        // NamedNodeMap skips entries.
-        [...el.attributes].forEach(attr => {
-            const name  = attr.name.toLowerCase();
-            const value = (attr.value || '').trim();
-
-            if (name.indexOf('on') === 0) {            // inline event handlers
-                el.removeAttribute(attr.name);
-                return;
-            }
-            if (name === 'class' || name === 'id') {   // could match a host rule
-                el.removeAttribute(attr.name);
-                return;
-            }
-            if (COLOUR_ATTRIBUTES.has(name) || FONT_ATTRIBUTES.has(name)) {
-                el.removeAttribute(attr.name);
-                return;
-            }
-            if (URL_ATTRIBUTES.has(name)) {
-                if (name === 'background' || name === 'action' || name === 'formaction' || name === 'data') {
-                    el.removeAttribute(attr.name);     // background image or form target
-                    return;
-                }
-                const ok = (name === 'src' || name === 'srcset')
-                    ? ALLOWED_IMAGE_PROTOCOLS.test(value)
-                    : ALLOWED_LINK_PROTOCOLS.test(value);
-                if (!ok) el.removeAttribute(attr.name);
-                return;
-            }
-        });
-
-        stripPastedStyle(el);
-    }
-
-    // <big> and <small> carry their size in the tag name, so removing styles
-    // leaves them untouched. Replace each with its own children, innermost
-    // first, so a nested pair collapses cleanly in one pass.
-    function unwrapSizeElements(body) {
-        const nodes = [...body.querySelectorAll(SIZE_ELEMENT_SELECTOR)].reverse();
-        nodes.forEach(el => {
-            const parent = el.parentNode;
-            if (!parent) return;
-            while (el.firstChild) parent.insertBefore(el.firstChild, el);
-            parent.removeChild(el);
-        });
-    }
-
-    function sanitizeClipboardHtml(html) {
-        // DOMParser doesn't load images or run scripts, so this is a safe way
-        // to turn the clipboard string into a walkable tree.
-        const doc  = new DOMParser().parseFromString(html, 'text/html');
-        const body = doc.body;
-        if (!body) return '';
-
-        // Drop executable and interactive nodes with everything inside them.
-        body.querySelectorAll(PASTE_DROP_SELECTOR).forEach(el => el.remove());
-
-        // Word and Outlook wrap large blocks in conditional comments. Remove
-        // comment nodes so none of that leaks back out as markup.
-        const walker   = doc.createTreeWalker(body, NodeFilter.SHOW_COMMENT, null);
-        const comments = [];
-        while (walker.nextNode()) comments.push(walker.currentNode);
-        comments.forEach(node => node.parentNode && node.parentNode.removeChild(node));
-
-        body.querySelectorAll('*').forEach(sanitizePastedElement);
-        unwrapSizeElements(body);
-
-        return body.innerHTML.trim();
-    }
-
-    function handleEditorPaste(event) {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (!target.closest('.fr-element[contenteditable="true"]')) return;
-
-        const clipboardData = event.clipboardData || window.clipboardData;
-        if (!clipboardData) return;
-
-        const html = clipboardData.getData('text/html');
-        const text = clipboardData.getData('text/plain');
-        if (!html && !text) return; // image or non-text content, let Froala handle it
-
-        event.preventDefault();
-        event.stopImmediatePropagation();
-
-        if (html) {
-            const clean = sanitizeClipboardHtml(html);
-            if (clean) {
-                document.execCommand('insertHTML', false, clean);
-                return;
-            }
-        }
-        // No HTML, or it sanitised down to nothing: fall back to plain text.
-        document.execCommand('insertText', false, text);
-    }
-
-    let pasteHandlerRegistered = false;
-    function registerEditorPasteHandler() {
-        if (pasteHandlerRegistered) return;
-        pasteHandlerRegistered = true;
-        window.addEventListener('paste', handleEditorPaste, true);
-    }
-
-    // ============================
-    // Card styling
-    // ============================
     function applyCardStyles() {
-        const currentMode = STYLE_MODES[styleMode];
-
         document
-            .querySelectorAll('.__module-tickets__tickets-list__tickets-table__ticket-item')
-            .forEach(cardElement => {
-                const mainContent = cardElement.querySelector('[data-test-ticket-content]');
-                if (!mainContent) return;
+            .querySelectorAll('.tickets__list.__module-tickets__tickets-list__tickets-table__ticket-item')
+            .forEach(card => {
+                const main = card.querySelector('[data-test-ticket-content]');
+                if (!main) return;
 
-                mainContent.classList.remove(
+                main.classList.remove(
                     'ticket-priority-border',
                     'ticket-due-soon-border',
                     'ticket-due-today-border',
                     'ticket-new-border'
                 );
 
-                const ticketText    = mainContent.textContent;
-                const ticketStatus  = detectStatus(ticketText);
-                const listContainer = cardElement.closest('.tickets__list');
+                // JS only announces the state; CSS does all the styling.
+                // Keep the last known status if the control is mid-render, so the
+                // card doesn't flash back to its default colour.
+                const status = detectStatus(card) || card.getAttribute('data-status');
+                if (status) card.setAttribute('data-status', status);
+                card.setAttribute('data-style-mode', styleMode);
 
-                if (listContainer) {
-                    // CSS handles all the actual styling. JS just announces
-                    // what status this card has and which mode is active.
-                    listContainer.setAttribute('data-status', ticketStatus);
-                    listContainer.setAttribute('data-style-mode', currentMode);
-                    // Clear inline backgrounds left behind by earlier script versions
-                    if (listContainer.style.background) listContainer.style.background = '';
-                }
+                const tags = [...main.querySelectorAll('span.tag,span[class^="tag--"],.list-item')]
+                    .map(el => el.textContent.trim());
 
-                const dueInfo   = extractDueInfo(ticketText);
-                const tagNodes  = [...mainContent.querySelectorAll('span.tag,span[class^="tag--"],.list-item')];
-                const tags      = tagNodes.map(el => el.textContent.trim());
-                const tagsLower = tags.join(' ').toLowerCase();
-                const urgent    = isUrgent(ticketText, dueInfo, tagsLower);
-
-                mainContent.classList.toggle(
+                main.classList.toggle(
                     'ticket-new-border',
-                    ticketStatus === 'Open' && urgent
+                    status === 'Open' && isUrgent(main.textContent, tags.join(' ').toLowerCase())
                 );
-
-                hideTagElements(mainContent);
-                applyEscState(cardElement, tags);
+                applyEscState(card, tags);
             });
     }
 
     // ============================
-    // Dropdown setup
+    // Paste sanitisation
     // ============================
-    function setupDropdowns() {
-        // The top-nav button lives inside a Shadow DOM, so document.getElementById
-        // won't find it. We check the shadow root directly to avoid duplicates.
-        const shadowHost = document.querySelector('ticket-top-nav');
-        const shadowRoot = shadowHost && shadowHost.shadowRoot;
-        if (shadowRoot && shadowRoot.getElementById('style-select-btn')) return;
-        if (!shadowRoot && document.getElementById('style-select-btn')) return; // legacy fallback
+    // Pasted content keeps bold, italics, underline, links, lists, tables, line
+    // breaks and paragraphs, and nothing else. Headings become plain paragraphs;
+    // colour, font family, font size and anything else that resizes or restyles
+    // text is dropped. Elements, attributes and inline properties are all
+    // allow-listed, so a format we haven't thought of can't slip through.
+    //
+    // Executable and interactive nodes are removed with their contents so their
+    // guts can't surface as text, and URLs are protocol checked. The handler sits
+    // on window in capture, the only place that beats Froala's own paste handler,
+    // and execCommand is still the insertion path that keeps native undo.
+    const LINK_PROTOCOLS  = /^(?:https?:|mailto:|tel:|#)/i;
+    const IMAGE_PROTOCOLS = /^(?:https?:|cid:|data:image\/)/i;
 
-        const targetContainer =
-            (shadowRoot && shadowRoot.querySelector('[data-testid="right-section"]')) ||
-            document.querySelector('.page-actions__right .pull-right');
+    const DROP_SELECTOR = 'script,style,link,meta,title,base,noscript,iframe,frame,frameset,'
+        + 'object,embed,applet,form,input,button,select,textarea,option';
 
-        if (!targetContainer) return;
+    // Any other tag is unwrapped: the element goes, its text stays. Table
+    // internals are listed because dropping them would collapse the table.
+    const KEEP_ELEMENTS = new Set([
+        'p', 'div', 'br', 'span', 'b', 'strong', 'i', 'em', 'u', 'a',
+        'ul', 'ol', 'li', 'pre', 'code', 'img',
+        'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption'
+    ]);
+    const KEEP_ATTRIBUTES = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan', 'start', 'style']);
+
+    // border-collapse and friends are needed for tables; the lookahead keeps border
+    // colours and border-image out. Everything unlisted goes, custom properties
+    // included, since var() can smuggle a colour in.
+    const KEEP_STYLE = /^(?:font-weight|font-style|text-align|vertical-align|list-style-type|text-decoration(?:-line|-style|-thickness)?|border(?!.*(?:color|image))[\w-]*)$/;
+
+    // Shorthands that can carry a colour. The matching colour longhand is appended
+    // as currentcolor, which wins over the shorthand, so the border survives and
+    // its colour follows the theme.
+    const COLOUR_SHORTHANDS = new Set([
+        'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+        'border-block', 'border-block-start', 'border-block-end',
+        'border-inline', 'border-inline-start', 'border-inline-end',
+        'text-decoration'
+    ]);
+
+    // Pull weight and italic out of a `font` shorthand before it is discarded.
+    function preserveFontTraits(style, value) {
+        const raw = String(value).toLowerCase();
+        if (/\b(?:italic|oblique)\b/.test(raw)) style.setProperty('font-style', 'italic');
+        if (/\bbold(?:er)?\b/.test(raw)) return style.setProperty('font-weight', 'bold');
+        const weight = raw.match(/(?:^|\s)([1-9]00)(?:\s|\/|$)/);
+        if (weight && parseInt(weight[1], 10) >= 600) style.setProperty('font-weight', 'bold');
+    }
+
+    // Reading through element.style means the browser has already expanded and
+    // normalised shorthands, so no hand-rolled CSS parser is needed.
+    function stripPastedStyle(el) {
+        if (!el.hasAttribute('style')) return;
+        const style = el.style;
+
+        Array.from(style).forEach(name => {
+            const prop = name.toLowerCase();
+            if (prop === 'font') preserveFontTraits(style, style.getPropertyValue(name));
+            if (!KEEP_STYLE.test(prop)) style.removeProperty(name);
+            else if (COLOUR_SHORTHANDS.has(prop)) {
+                style.setProperty(prop + '-color', 'currentcolor', style.getPropertyPriority(name));
+            }
+        });
+
+        if (!style.length) el.removeAttribute('style');
+    }
+
+    function sanitizeElement(el) {
+        // Snapshot first: removing while iterating a live NamedNodeMap skips entries.
+        [...el.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            if (!KEEP_ATTRIBUTES.has(name)) return el.removeAttribute(attr.name);
+            const protocols = name === 'href' ? LINK_PROTOCOLS : name === 'src' ? IMAGE_PROTOCOLS : null;
+            if (protocols && !protocols.test((attr.value || '').trim())) el.removeAttribute(attr.name);
+        });
+        stripPastedStyle(el);
+    }
+
+    // Headings, <big>, <small> and <font> carry their size in the tag name, so
+    // nothing but unwrapping removes it. Headings keep their paragraph break;
+    // the rest are unwrapped innermost first, so nesting collapses in one pass.
+    function pruneElements(body) {
+        body.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(heading => {
+            const paragraph = body.ownerDocument.createElement('p');
+            paragraph.append(...heading.childNodes);
+            heading.replaceWith(paragraph);
+        });
+        [...body.querySelectorAll('*')].reverse().forEach(el => {
+            if (!KEEP_ELEMENTS.has(el.localName)) el.replaceWith(...el.childNodes);
+        });
+    }
+
+    function sanitizeClipboardHtml(html) {
+        // DOMParser neither loads images nor runs scripts, so this is a safe tree.
+        const body = new DOMParser().parseFromString(html, 'text/html').body;
+        if (!body) return '';
+
+        body.querySelectorAll(DROP_SELECTOR).forEach(el => el.remove());
+
+        // Word and Outlook wrap blocks in conditional comments; drop the lot.
+        const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_COMMENT);
+        const comments = [];
+        while (walker.nextNode()) comments.push(walker.currentNode);
+        comments.forEach(node => node.remove());
+
+        pruneElements(body);
+        body.querySelectorAll('*').forEach(sanitizeElement);
+
+        return body.innerHTML.trim();
+    }
+
+    function handleEditorPaste(event) {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest('.fr-element[contenteditable="true"]')) return;
+
+        const clipboard = event.clipboardData || window.clipboardData;
+        if (!clipboard) return;
+
+        const html = clipboard.getData('text/html');
+        const text = clipboard.getData('text/plain');
+        if (!html && !text) return; // image or other non-text content, let Froala have it
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const clean = html && sanitizeClipboardHtml(html);
+        if (clean) document.execCommand('insertHTML', false, clean);
+        else document.execCommand('insertText', false, text);
+    }
+
+    // ============================
+    // Style dropdown
+    // ============================
+    function setupDropdown() {
+        // The top nav lives in a shadow root, so document lookups won't find the button.
+        const root = document.querySelector('ticket-top-nav')?.shadowRoot;
+        if (!root || root.getElementById('style-select-btn')) return;
+        const target = root.querySelector('[data-testid="right-section"]');
+        if (!target) return;
+
+        const shadowStyle = document.createElement('style');
+        shadowStyle.textContent = dropdownCss;
+        root.appendChild(shadowStyle);
 
         const wrapper = document.createElement('div');
         wrapper.className = 'fd-style-dropdown';
@@ -923,23 +584,22 @@ html.fd-dark .fr-view pre {
         const button = document.createElement('button');
         button.id = 'style-select-btn';
         button.type = 'button';
-        button.textContent = 'Style: ' + STYLE_LABELS[styleMode];
         button.className = 'fd-style-dropdown-btn';
+        button.textContent = 'Style: ' + label(styleMode);
 
         const menu = document.createElement('div');
         menu.className = 'fd-style-dropdown-content';
 
-        STYLE_LABELS.forEach((name, index) => {
+        STYLE_MODES.forEach(mode => {
             const link = document.createElement('a');
             link.href = '#';
-            link.textContent = name;
-            link.dataset.index = String(index);
+            link.textContent = label(mode);
             link.onclick = event => {
                 event.preventDefault();
                 event.stopPropagation();
-                styleMode = index;
-                localStorage.setItem(STORAGE_KEY, String(styleMode));
-                button.textContent = 'Style: ' + STYLE_LABELS[styleMode];
+                styleMode = mode;
+                localStorage.setItem(STORAGE_KEY, mode);
+                button.textContent = 'Style: ' + label(mode);
                 menu.classList.remove('show-dropdown');
                 applyCardStyles();
             };
@@ -948,75 +608,39 @@ html.fd-dark .fr-view pre {
 
         button.onclick = event => {
             event.stopPropagation();
-            document
-                .querySelectorAll('.fd-style-dropdown-content')
-                .forEach(dropdown => {
-                    if (dropdown !== menu) dropdown.classList.remove('show-dropdown');
-                });
             menu.classList.toggle('show-dropdown');
         };
+        // Shadow-root clicks retarget to the host, so any document click is an outside click.
+        document.addEventListener('click', () => menu.classList.remove('show-dropdown'));
 
-        // Mirror the dropdown CSS into the shadow root. CSS custom properties
-        // inherit through the shadow boundary, so theme switching works
-        // automatically with no extra wiring.
-        if (shadowRoot && !shadowRoot.getElementById('fd-style-dropdown-css')) {
-            const shadowStyle = document.createElement('style');
-            shadowStyle.id = 'fd-style-dropdown-css';
-            shadowStyle.textContent = dropdownCss;
-            shadowRoot.appendChild(shadowStyle);
-        }
-
-        wrapper.appendChild(button);
-        wrapper.appendChild(menu);
-        targetContainer.appendChild(wrapper);
-
-        document.addEventListener('click', event => {
-            if (!event.target.closest('.fd-style-dropdown')) {
-                document
-                    .querySelectorAll('.fd-style-dropdown-content')
-                    .forEach(dropdown => dropdown.classList.remove('show-dropdown'));
-            }
-        });
+        wrapper.append(button, menu);
+        target.appendChild(wrapper);
     }
 
     // ============================
     // Observers and initialisation
     // ============================
-    // Main observer: re-applies card styling and dropdown injection whenever
-    // the Ember app re-renders the ticket list. Debounced so rapid mutations
-    // collapse into one pass.
+    // Debounced so an Ember re-render's flurry of mutations collapses into one pass.
     let debounceTimer = null;
-    const mainObserver = new MutationObserver(() => {
+    new MutationObserver(() => {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            syncTheme();
-            applyCardStyles();
-            setupDropdowns();
-            normalizeEmailBackgrounds();
-        }, 150);
-    });
-    mainObserver.observe(document.body, { childList: true, subtree: true });
+        debounceTimer = setTimeout(refresh, 150);
+    }).observe(document.body, { childList: true, subtree: true });
 
-    // Theme observer: catches theme toggles that happen without DOM changes
-    // (Freshdesk switching the class/style on <html> or <body>).
+    // Theme toggles can happen with no DOM changes at all, hence the second observer.
     const themeObserver = new MutationObserver(syncTheme);
-    themeObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class', 'data-theme', 'style']
-    });
-    themeObserver.observe(document.body, {
-        attributes: true,
-        attributeFilter: ['class', 'data-theme', 'style']
-    });
+    const themeOptions = { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] };
+    themeObserver.observe(document.documentElement, themeOptions);
+    themeObserver.observe(document.body, themeOptions);
+    window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 
-    // Also follow OS-level dark-mode changes if Freshdesk relies on
-    // prefers-color-scheme for any of its surfaces.
-    if (window.matchMedia) {
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
+    function refresh() {
+        syncTheme();
+        applyCardStyles();
+        setupDropdown();
+        normalizeEmailBackgrounds();
     }
 
-    syncTheme();
-    applyCardStyles();
-    setupDropdowns();
-    registerEditorPasteHandler();
+    window.addEventListener('paste', handleEditorPaste, true);
+    refresh();
 })();
