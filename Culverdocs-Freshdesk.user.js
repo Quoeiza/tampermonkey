@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.14
-// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour, font family and font size.
+// @version      2.17
+// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour, font family and font size. Tags can be toggled on and off. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
@@ -18,6 +18,7 @@
     // Configuration and state
     // ============================
     const STORAGE_KEY = 'fd_card_style_mode';
+    const TAGS_KEY    = 'fd_show_tags';
     const STYLE_MODES = ['gradient', 'fill', 'none'];
     const STATUSES    = ['Open', 'Pending', 'On Hold', 'Resolved', 'Closed'];
     const label       = mode => mode[0].toUpperCase() + mode.slice(1);
@@ -25,6 +26,13 @@
     // Stored value is the mode name; a legacy numeric value migrates by index.
     const stored = localStorage.getItem(STORAGE_KEY);
     let styleMode = STYLE_MODES[stored] || (STYLE_MODES.includes(stored) ? stored : 'none');
+
+    // Tag visibility is one class on <html>, so CSS covers every card at once and
+    // cards rendered later need no follow-up work. Hidden is the default.
+    let showTags = localStorage.getItem(TAGS_KEY) === 'true';
+    function applyTagState() {
+        document.documentElement.classList.toggle('fd-tags', showTags);
+    }
 
     // ============================
     // CSS injection
@@ -188,13 +196,14 @@ html.fd-dark {
     z-index: 1;
 }
 
-/* Freshdesk's tag rows go, since escalation is redrawn as an emoji prefix */
-.tickets__list .ticket-tag-wrap,
-.tickets__list .status-tag-wrap,
-.ticket-tag-toprow,
-.ticket-tag-toprow > .tag,
-.ticket-tag-toprow > span[class^="tag--"],
-.ticket-tag-toprow > .ticket-ribbon { display: none !important; }
+/* Freshdesk's tag rows go, since escalation is redrawn as an emoji prefix.
+   fd-tags on <html> puts them back, toggled from the top nav. */
+html:not(.fd-tags) .tickets__list .ticket-tag-wrap,
+html:not(.fd-tags) .tickets__list .status-tag-wrap,
+html:not(.fd-tags) .ticket-tag-toprow,
+html:not(.fd-tags) .ticket-tag-toprow > .tag,
+html:not(.fd-tags) .ticket-tag-toprow > span[class^="tag--"],
+html:not(.fd-tags) .ticket-tag-toprow > .ticket-ribbon { display: none !important; }
 
 /* Filter controls */
 .list-filter-wrap .list-filter__item,
@@ -253,6 +262,9 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     padding: 4px 8px;
     vertical-align: top;
 }
+
+/* Insurance for the pinned group, in case Froala's own float rule is absent. */
+.fr-toolbar .fr-btn-grp.fr-float-right { float: right; }
 
 @media (max-width: 1120px) {
     .tickets__list .list-content--info,
@@ -438,7 +450,8 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     // breaks and paragraphs, and nothing else. Headings become plain paragraphs;
     // colour, font family, font size and anything else that resizes or restyles
     // text is dropped. Elements, attributes and inline properties are all
-    // allow-listed, so a format we haven't thought of can't slip through.
+    // allow-listed, so a format we haven't thought of can't slip through. Only the
+    // clipboard runs through here, so the toolbar's own font controls are unaffected.
     //
     // Executable and interactive nodes are removed with their contents so their
     // guts can't surface as text, and URLs are protocol checked. The handler sits
@@ -565,7 +578,77 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     }
 
     // ============================
-    // Style dropdown
+    // Editor toolbar
+    // ============================
+    // Freshdesk loads far more Froala plugins than it exposes buttons for, so the
+    // additions are built from Froala's own registry rather than reimplemented:
+    // icon, tooltip, shortcut, dropdown, popup and disabled state all arrive with
+    // the markup. Keys are the data-cmd of an existing button; the listed commands
+    // are inserted directly after it.
+    const TOOLBAR_ADDITIONS = {
+        underline:   ['strikeThrough', 'subscript', 'superscript'],
+        h2:          ['fontFamily', 'fontSize'],
+        formatUL:    ['quote'],
+        insertImage: ['insertVideo'],
+        insertTable: ['insertHR', 'specialCharacters']
+    };
+
+    // Floated right, so it stays last however wide the rest of the toolbar gets.
+    const TOOLBAR_TRAILING = ['html'];
+
+    // Froala's stock icons carry class fr-svg on a 24 viewBox, Freshdesk's carry
+    // app-icon on a 16 one. A viewBox scales to whatever the class sizes the box at,
+    // so swapping the class is all it takes for the two sets to match.
+    function buildButtons(inst, commands) {
+        return inst.button.buildList(commands).replace(/\bfr-svg\b/g, 'app-icon app-icon--small');
+    }
+
+    // The overflow panel's padding is baked in at init from its button's position,
+    // so adding buttons to the left of that button leaves the two detached.
+    function alignMorePanels(toolbar) {
+        if (!toolbar.offsetParent) return;
+        const left = toolbar.getBoundingClientRect().left;
+        toolbar.querySelectorAll('.fr-more-toolbar[data-name]').forEach(panel => {
+            const button = document.getElementById(panel.dataset.name);
+            if (button) panel.style.paddingLeft = (button.getBoundingClientRect().left - left) + 'px';
+        });
+    }
+
+    // buildList returns each button together with its dropdown menu as a sibling,
+    // so the whole string goes in as one insertion and the two stay adjacent.
+    function extendToolbar(inst, toolbar) {
+        Object.entries(TOOLBAR_ADDITIONS).forEach(([cmd, commands]) => {
+            const anchor = toolbar.querySelector(`.fr-btn-grp [data-cmd="${cmd}"]`);
+            if (anchor) anchor.insertAdjacentHTML('afterend', buildButtons(inst, commands));
+        });
+
+        const group = document.createElement('div');
+        group.className = 'fr-btn-grp fr-float-right';
+        group.innerHTML = buildButtons(inst, TOOLBAR_TRAILING);
+        toolbar.appendChild(group);
+    }
+
+    // Reply, note and forward each get their own editor and their own instance
+    // number, so the guard lives on the toolbar element rather than on any id.
+    // Commands are delegated from the toolbar, so injected buttons wire themselves.
+    function setupEditorToolbars() {
+        const instances = window.FroalaEditor?.INSTANCES;
+        if (!instances) return;
+
+        instances.forEach(inst => {
+            const toolbar = inst.$tb?.[0] || inst.$tb?.get?.(0)
+                || document.getElementById('bold-' + inst.id)?.closest('.fr-toolbar');
+            if (!toolbar) return;
+            if (!toolbar.dataset.fdExtended) {
+                toolbar.dataset.fdExtended = '1';
+                extendToolbar(inst, toolbar);
+            }
+            alignMorePanels(toolbar);
+        });
+    }
+
+    // ============================
+    // Top-nav controls
     // ============================
     function setupDropdown() {
         // The top nav lives in a shadow root, so document lookups won't find the button.
@@ -615,6 +698,27 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
 
         wrapper.append(button, menu);
         target.appendChild(wrapper);
+
+        // Reuses the dropdown wrapper for its spacing and the narrow-window hide
+        // rule; there is no menu here, the button flips the class directly.
+        const tagsWrapper = document.createElement('div');
+        tagsWrapper.className = 'fd-style-dropdown';
+
+        const tagsButton = document.createElement('button');
+        tagsButton.id = 'tags-toggle-btn';
+        tagsButton.type = 'button';
+        tagsButton.className = 'fd-style-dropdown-btn';
+        tagsButton.textContent = 'Tags: ' + (showTags ? 'On' : 'Off');
+        tagsButton.onclick = event => {
+            event.stopPropagation();
+            showTags = !showTags;
+            localStorage.setItem(TAGS_KEY, showTags);
+            applyTagState();
+            tagsButton.textContent = 'Tags: ' + (showTags ? 'On' : 'Off');
+        };
+
+        tagsWrapper.appendChild(tagsButton);
+        target.appendChild(tagsWrapper);
     }
 
     // ============================
@@ -634,11 +738,15 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     themeObserver.observe(document.body, themeOptions);
     window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 
+    // Toolbar work goes last: it leans on a third-party registry, so a change there
+    // can't take the card styling down with it.
     function refresh() {
         syncTheme();
+        applyTagState();
         applyCardStyles();
         setupDropdown();
         normalizeEmailBackgrounds();
+        setupEditorToolbars();
     }
 
     window.addEventListener('paste', handleEditorPaste, true);
