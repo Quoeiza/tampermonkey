@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      3.0
+// @version      3.1
 // @description  QoL improvements for the Freshdesk ticket list and editor. Status colours, urgency stripe, deadline chips, ownership and unassigned highlighting, quietened waiting tickets, status group headers, tag badges, summary counts with focus filters, density and subtle motion, all adjustable from a Customise panel. Auto-adapts to Freshdesk's light and dark themes. Pasted or dropped content can never bring colour into the editor; paste also drops font family and font size. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -71,8 +71,21 @@
 
     const settings = loadSettings();
 
+    // Each Freshdesk tab holds its own copy, so a change made in one tab is
+    // picked up by the others; otherwise a stale tab would write its copy back.
+    window.addEventListener('storage', event => {
+        if (event.key !== SETTINGS_KEY) return;
+        Object.assign(settings, loadSettings());
+        applySettings();
+        applyCardStyles();
+        syncPanel();
+    });
+
+    // Only values that differ from the defaults are stored, so a default changed
+    // in a later version reaches everyone who never touched that setting.
     function saveSettings() {
-        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* private mode */ }
+        const changed = Object.fromEntries(Object.entries(settings).filter(([key, value]) => value !== DEFAULTS[key]));
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(changed)); } catch { /* private mode */ }
     }
 
     // Lines of "tag = badge"; the last "=" splits, so a tag may contain one.
@@ -223,8 +236,12 @@ html[data-fd-card-style="none"] .tickets__list { background: var(--fd-card-bg) !
 .tickets__list .list-content { padding-left: 0 !important; padding-top: 0; padding-bottom: 0; }
 .tickets__list .list-content--main { padding-right: 0; background: transparent !important; }
 .list-content--info { background: transparent !important; }
-.list-content-wrap { padding: 16px; }
+/* 17px on the left matches the 8px between the checkbox and the avatar, so the
+   avatar sits centred between the checkbox and the text. */
+.list-content-wrap { padding: 16px 16px 16px 17px; }
 .list-check-wrap { position: relative; }
+/* Priority, assignee and status rows, brought closer to the subject lines' rhythm. */
+.tickets__list .list-content--info .list-filter > :not(:last-child) { margin-bottom: 5px; }
 .tickets__list .ticket-title-row {
     display: flex;
     align-items: center !important;
@@ -254,7 +271,8 @@ html[data-fd-card-style="none"] .tickets__list { background: var(--fd-card-bg) !
 
 /* Compact density: tighter cards so more of the list fits on screen. */
 html[data-fd-density="compact"] .tickets__list { min-height: 0; margin-bottom: 6px !important; }
-html[data-fd-density="compact"] .list-content-wrap { padding: 8px 12px; }
+html[data-fd-density="compact"] .list-content-wrap { padding: 8px 12px 8px 17px; }
+html[data-fd-density="compact"] .tickets__list .list-content--info .list-filter > :not(:last-child) { margin-bottom: 3px; }
 html[data-fd-density="compact"] .wordbreak-fix { font-size: 15px; }
 html[data-fd-density="compact"] .ticket-info { padding-top: 2px; font-size: 13px; }
 html[data-fd-density="compact"] .tickets__list .ticket-title-row .muted[data-test-ticket-id] { font-size: 13px; }
@@ -346,21 +364,53 @@ html.fd-customer-replies .tickets__list[data-fd-turn="customer"] [data-test-id="
     font-weight: 500;
 }
 
-/* Ownership. The assignee keeps Freshdesk's own text, shown as a pill. */
-html.fd-highlight-mine .tickets__list[data-fd-mine] {
-    box-shadow: var(--fd-card-shadow), inset 0 0 0 2px var(--fd-accent);
-}
+/* Ownership. The assignee label is redrawn as "Group / You" or "Group /
+   Unassigned", the second half as a pill. Freshdesk's label already uses its
+   pseudo-elements for a hint.css tooltip, so these pin their own layout over it. */
 html.fd-highlight-mine [data-fd-kind="mine"],
-html.fd-flag-unassigned [data-fd-kind="unassigned"] {
-    display: inline-block;
-    width: auto;
-    padding: 0 8px;
-    border-radius: 999px;
-    font-weight: 500;
-    line-height: 20px;
+html.fd-flag-unassigned [data-fd-kind="unassigned"] { font-size: 0 !important; }
+html.fd-highlight-mine [data-fd-kind="mine"]::before,
+html.fd-highlight-mine [data-fd-kind="mine"]::after,
+html.fd-flag-unassigned [data-fd-kind="unassigned"]::before,
+html.fd-flag-unassigned [data-fd-kind="unassigned"]::after {
+    position: static !important;
+    display: inline-block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    white-space: nowrap !important;
+    z-index: auto !important;
+    pointer-events: none;
+    font-size: 13px !important;
+    line-height: 20px !important;
 }
-html.fd-highlight-mine [data-fd-kind="mine"] { background: var(--fd-accent-bg) !important; color: var(--fd-accent-text) !important; }
-html.fd-flag-unassigned [data-fd-kind="unassigned"] { background: var(--fd-warn-bg) !important; color: var(--fd-warn-text) !important; }
+html.fd-highlight-mine [data-fd-kind="mine"]::before,
+html.fd-flag-unassigned [data-fd-kind="unassigned"]::before {
+    content: attr(data-fd-group) " /" !important;
+    padding: 0 5px 0 0 !important;
+    background: none !important;
+    color: inherit !important;
+    font-weight: inherit !important;
+}
+html.fd-highlight-mine [data-fd-kind="mine"]::after,
+html.fd-flag-unassigned [data-fd-kind="unassigned"]::after {
+    padding: 0 8px !important;
+    border-radius: 999px !important;
+    font-weight: 500 !important;
+}
+html.fd-highlight-mine [data-fd-kind="mine"]::after {
+    content: "You" !important; background: var(--fd-accent-bg) !important; color: var(--fd-accent-text) !important;
+}
+html.fd-flag-unassigned [data-fd-kind="unassigned"]::after {
+    content: "Unassigned" !important; background: var(--fd-warn-bg) !important; color: var(--fd-warn-text) !important;
+}
 html.fd-flag-unassigned .tickets__list[data-fd-unassigned] { outline: 1.5px dashed var(--fd-warn-text); outline-offset: -1.5px; }
 
 /* Waiting on the customer, with nothing for us to do: step back until hovered. */
@@ -390,9 +440,6 @@ html.fd-motion-status { --fd-status-fade: .5s; }
 html.fd-motion-hover .tickets__list:hover {
     transform: translateY(-1px);
     box-shadow: var(--fd-card-shadow-hover);
-}
-html.fd-motion-hover.fd-highlight-mine .tickets__list[data-fd-mine]:hover {
-    box-shadow: var(--fd-card-shadow-hover), inset 0 0 0 2px var(--fd-accent);
 }
 @keyframes fd-arrive { from { opacity: .45; } to { opacity: 0; } }
 html.fd-motion-arrivals .tickets__list[data-fd-arrived]::after {
@@ -794,13 +841,15 @@ label.fd-row { cursor: pointer; }
     }
 
     // The assignee reads "Group / Agent", with "--" for nobody and long names cut
-    // to "Lawrence M...", so a prefix match against the full name is used.
+    // to "Lawrence M...", so a prefix match against the full name is used. The
+    // group half is kept for the redrawn "Group / You" label.
     function annotateAssignee(card) {
         const trigger = card.querySelector('[data-test-id="assign-to-hover"]');
         const label = trigger && [...trigger.querySelectorAll('*')].find(el =>
             [...el.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.data.includes(' / ')));
         const text = label ? label.textContent.replace(/\s+/g, ' ').trim() : '';
         const at = text.lastIndexOf(' / ');
+        const group = at === -1 ? '' : text.slice(0, at).trim();
         const agent = at === -1 ? null : text.slice(at + 3).replace(/(?:\.\.\.|…)$/, '').trim();
         const unassigned = agent !== null && /^-*$/.test(agent);
         const mine = !!(agent && !unassigned && myName && agent.length >= 3
@@ -808,7 +857,11 @@ label.fd-row { cursor: pointer; }
 
         setAttr(card, 'data-fd-mine', mine);
         setAttr(card, 'data-fd-unassigned', unassigned);
-        if (label) setAttr(label, 'data-fd-kind', mine ? 'mine' : unassigned ? 'unassigned' : null);
+        if (label) {
+            const kind = mine ? 'mine' : unassigned ? 'unassigned' : null;
+            setAttr(label, 'data-fd-kind', kind);
+            setAttr(label, 'data-fd-group', kind && group);
+        }
     }
 
     function annotateBadges(card, tags) {
