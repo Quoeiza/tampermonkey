@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      2.17
-// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Paste keeps all formatting except colour, font family and font size. Tags can be toggled on and off. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
+// @version      2.18
+// @description  QoL improvements for displaying tickets with clearer priority and ESC indicators. Auto-adapts to Freshdesk's light and dark themes. Pasted or dropped content can never bring colour into the editor; paste also drops font family and font size. Tags can be toggled on and off. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=culverdocs.co.uk
@@ -227,13 +227,16 @@ html:not(.fd-tags) .ticket-tag-toprow > .ticket-ribbon { display: none !importan
 }
 
 /* Dark mode: customer email clients inline black text and white signature
-   tables, both unreadable on a dark card. Scoped to conversation content. */
+   tables, both unreadable on a dark card. Scoped to conversation content.
+   The editor box shares .ticket-note-typography and is excluded: Freshdesk
+   already corrects its colours, and an override there hides real colours from
+   the agent and gets inlined into the reply by Chrome when it merges blocks. */
 html.fd-dark .ticket-details__conversation__content,
 html.fd-dark .ticket-details__conversation__content *,
-html.fd-dark .ticket-note-typography,
-html.fd-dark .ticket-note-typography * { color: var(--fd-text-info) !important; }
+html.fd-dark .ticket-note-typography:not(.fr-box),
+html.fd-dark .ticket-note-typography:not(.fr-box) * { color: var(--fd-text-info) !important; }
 html.fd-dark .ticket-details__conversation__content a,
-html.fd-dark .ticket-note-typography a { color: #6ea8ff !important; }
+html.fd-dark .ticket-note-typography:not(.fr-box) a { color: #6ea8ff !important; }
 
 /* Bright inline backgrounds are tagged by normalizeEmailBackgrounds; the
    background-image reset neutralises any gradient that came with them. */
@@ -360,7 +363,7 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     // arbitrary shades that an attribute selector can't match. Anything brighter
     // than ~85% luminance gets tagged for the CSS rule above. :not() stops
     // reprocessing and prevents an observer feedback loop.
-    const EMAIL_BG_SELECTOR = ['.ticket-details__conversation__content', '.ticket-note-typography']
+    const EMAIL_BG_SELECTOR = ['.ticket-details__conversation__content', '.ticket-note-typography:not(.fr-box)']
         .map(root => `${root} [style*="background"]:not(.fd-bg-darkened)`).join(',');
 
     function normalizeEmailBackgrounds() {
@@ -382,14 +385,22 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
         return text ? STATUSES.find(status => text.startsWith(status)) : null;
     }
 
+    // Word boundaries throughout: without them "a" plus "d", "h" or "m" matches
+    // inside words like "and" or "Ahmed", "due" matches inside "overdue", "m"
+    // matches "months", and a "Renewal" tag reads as "new". The overdue amount
+    // must follow within one word ("Overdue by 2 days"), so the hidden badge
+    // can't pair with an unrelated figure further along the card.
+    const AMOUNT  = String.raw`\b(\d+|an?)\s*(days?|hours?|hrs?|minutes?|mins?|d|h|m)\b`;
+    const OVERDUE = new RegExp(String.raw`\boverdue\b(?:\W+[a-z]+)??\W*` + AMOUNT);
+    const DUE_IN  = new RegExp(String.raw`\bdue\b.*?\bin\b.*?` + AMOUNT);
+
     function isUrgent(text, tagsLower) {
         const lower = text.toLowerCase();
-        if (tagsLower.includes('new')) return true;
+        if (/\bnew\b/.test(tagsLower)) return true;
 
-        // A bare "overdue" isn't enough, since the hidden overdue badge carries the word.
-        if (/overdue.*?(?:\d+|an?)\s*(?:day|hour|minute|d|h|m)/.test(lower)) return true;
+        if (OVERDUE.test(lower)) return true;
 
-        const due = lower.match(/due.*?in.*?(\d+|an?)\s*(day|hour|minute|d|h|m)/);
+        const due = lower.match(DUE_IN);
         if (due) {
             const value = due[1].startsWith('a') ? 1 : parseInt(due[1], 10);
             const unit  = due[2][0];
@@ -446,17 +457,16 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     // ============================
     // Paste sanitisation
     // ============================
-    // Pasted content keeps bold, italics, underline, links, lists, tables, line
-    // breaks and paragraphs, and nothing else. Headings become plain paragraphs;
-    // colour, font family, font size and anything else that resizes or restyles
-    // text is dropped. Elements, attributes and inline properties are all
+    // Pasted content keeps bold, italics, underline, links, lists, tables, images,
+    // line breaks and paragraphs, and nothing else. Headings become plain
+    // paragraphs; colour, font family, font size and anything else that resizes or
+    // restyles text is dropped. Elements, attributes and inline properties are all
     // allow-listed, so a format we haven't thought of can't slip through. Only the
     // clipboard runs through here, so the toolbar's own font controls are unaffected.
     //
     // Executable and interactive nodes are removed with their contents so their
     // guts can't surface as text, and URLs are protocol checked. The handler sits
-    // on window in capture, the only place that beats Froala's own paste handler,
-    // and execCommand is still the insertion path that keeps native undo.
+    // on window in capture, the only place that beats Froala's own paste handler.
     const LINK_PROTOCOLS  = /^(?:https?:|mailto:|tel:|#)/i;
     const IMAGE_PROTOCOLS = /^(?:https?:|cid:|data:image\/)/i;
 
@@ -470,47 +480,23 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
         'ul', 'ol', 'li', 'pre', 'code', 'img',
         'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption'
     ]);
-    const KEEP_ATTRIBUTES = new Set(['href', 'src', 'alt', 'title', 'colspan', 'rowspan', 'start', 'style']);
-
-    // border-collapse and friends are needed for tables; the lookahead keeps border
-    // colours and border-image out. Everything unlisted goes, custom properties
-    // included, since var() can smuggle a colour in.
-    const KEEP_STYLE = /^(?:font-weight|font-style|text-align|vertical-align|list-style-type|text-decoration(?:-line|-style|-thickness)?|border(?!.*(?:color|image))[\w-]*)$/;
-
-    // Shorthands that can carry a colour. The matching colour longhand is appended
-    // as currentcolor, which wins over the shorthand, so the border survives and
-    // its colour follows the theme.
-    const COLOUR_SHORTHANDS = new Set([
-        'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
-        'border-block', 'border-block-start', 'border-block-end',
-        'border-inline', 'border-inline-start', 'border-inline-end',
-        'text-decoration'
+    // width and height keep a pasted image at its displayed size, not its file size.
+    const KEEP_ATTRIBUTES = new Set([
+        'href', 'src', 'alt', 'title', 'width', 'height', 'colspan', 'rowspan', 'start', 'style'
     ]);
 
-    // Pull weight and italic out of a `font` shorthand before it is discarded.
-    function preserveFontTraits(style, value) {
-        const raw = String(value).toLowerCase();
-        if (/\b(?:italic|oblique)\b/.test(raw)) style.setProperty('font-style', 'italic');
-        if (/\bbold(?:er)?\b/.test(raw)) return style.setProperty('font-weight', 'bold');
-        const weight = raw.match(/(?:^|\s)([1-9]00)(?:\s|\/|$)/);
-        if (weight && parseInt(weight[1], 10) >= 600) style.setProperty('font-weight', 'bold');
-    }
+    // element.style only ever lists longhands, so a border shorthand arrives as
+    // separate width, style and colour entries; the lookahead drops the colour and
+    // border-image ones and the border follows the text colour. Everything
+    // unlisted goes, custom properties included, since var() can smuggle a colour in.
+    const KEEP_STYLE = /^(?:font-weight|font-style|text-align|vertical-align|list-style-type|text-decoration(?:-line|-style|-thickness)?|border(?!.*(?:color|image))[\w-]*)$/;
 
-    // Reading through element.style means the browser has already expanded and
-    // normalised shorthands, so no hand-rolled CSS parser is needed.
     function stripPastedStyle(el) {
         if (!el.hasAttribute('style')) return;
         const style = el.style;
-
         Array.from(style).forEach(name => {
-            const prop = name.toLowerCase();
-            if (prop === 'font') preserveFontTraits(style, style.getPropertyValue(name));
-            if (!KEEP_STYLE.test(prop)) style.removeProperty(name);
-            else if (COLOUR_SHORTHANDS.has(prop)) {
-                style.setProperty(prop + '-color', 'currentcolor', style.getPropertyPriority(name));
-            }
+            if (!KEEP_STYLE.test(name)) style.removeProperty(name);
         });
-
         if (!style.length) el.removeAttribute('style');
     }
 
@@ -522,6 +508,8 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
             const protocols = name === 'href' ? LINK_PROTOCOLS : name === 'src' ? IMAGE_PROTOCOLS : null;
             if (protocols && !protocols.test((attr.value || '').trim())) el.removeAttribute(attr.name);
         });
+        // Word's file:// images fail the protocol check and would arrive as broken icons.
+        if (el.localName === 'img' && !el.hasAttribute('src')) return el.remove();
         stripPastedStyle(el);
     }
 
@@ -558,23 +546,131 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
         return body.innerHTML.trim();
     }
 
+    // ============================
+    // Colour guard
+    // ============================
+    // A clean fragment isn't enough. When Chrome's insertHTML merges pasted blocks
+    // into the paragraph around the caret, it writes the styles CSS was giving
+    // them back in as inline styles, so the editor's dark-mode text colour lands
+    // in the reply and shows white on white for the customer. Freshdesk's dark
+    // mode also rewrites dark inline colours in the editor and parks the originals
+    // in data-original-*/data-corrected-* attributes for html.get() to restore.
+    // So every element an insertion creates or restyles is scrubbed after it
+    // lands, those attributes included.
+    const EDITOR      = '.fr-element[contenteditable="true"]';
+    const COLOUR_PROP = /color|background|shadow|fill|stroke|filter|border-image/;
+    // Colour-named data attributes only: Freshdesk also writes data-original-href
+    // on tracked links such as the survey link, and that must survive.
+    const COLOUR_ATTR = /^(?:color|bgcolor|background|data-(?:original|corrected)-[\w-]*(?:color|background|bg)[\w-]*)$/;
+
+    function scrubColour(el) {
+        [...el.attributes].forEach(attr => {
+            if (COLOUR_ATTR.test(attr.name)) el.removeAttribute(attr.name);
+        });
+        if (!el.style || !el.hasAttribute('style')) return;
+        Array.from(el.style).forEach(name => {
+            if (COLOUR_PROP.test(name)) el.style.removeProperty(name);
+        });
+        if (!el.style.length) el.removeAttribute('style');
+    }
+
+    // Watches root until the returned finish() runs, then scrubs every element
+    // added or restyled in between. Records already handed to the callback are
+    // kept as well as the queued ones, since a microtask checkpoint can fall
+    // between start and finish.
+    function watchInsertion(root) {
+        const records = [];
+        const observer = new MutationObserver(list => records.push(...list));
+        observer.observe(root, {
+            childList: true, subtree: true,
+            attributes: true, attributeFilter: ['style', 'color', 'bgcolor']
+        });
+        let done = false;
+        return () => {
+            if (done) return;
+            done = true;
+            records.push(...observer.takeRecords());
+            observer.disconnect();
+            records.forEach(record => {
+                if (record.type === 'attributes') return scrubColour(record.target);
+                record.addedNodes.forEach(node => {
+                    if (node.nodeType !== Node.ELEMENT_NODE) return;
+                    scrubColour(node);
+                    node.querySelectorAll('*').forEach(scrubColour);
+                });
+            });
+        };
+    }
+
+    // Froala saves an undo step, and Freshdesk syncs the draft, on input. The one
+    // Chrome fires mid-insertion is held back so neither ever holds the unscrubbed
+    // state, and a single input is announced once the result is final.
+    let inserting = false;
+
+    function insertScrubbed(root, html, text) {
+        // Snapshot the pre-paste state first, as Froala's own paste does, so a
+        // single undo returns to it.
+        window.FroalaEditor?.INSTANCES?.find(inst => inst.el === root)?.undo?.saveStep();
+        const finish = watchInsertion(root);
+        inserting = true;
+        try {
+            if (html) document.execCommand('insertHTML', false, html);
+            else document.execCommand('insertText', false, text);
+        } finally {
+            inserting = false;
+            finish();
+        }
+        root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
+    }
+
     function handleEditorPaste(event) {
-        const target = event.target;
-        if (!(target instanceof Element) || !target.closest('.fr-element[contenteditable="true"]')) return;
+        const root = event.target instanceof Element && event.target.closest(EDITOR);
+        if (!root || !event.clipboardData) return;
 
-        const clipboard = event.clipboardData || window.clipboardData;
-        if (!clipboard) return;
-
-        const html = clipboard.getData('text/html');
-        const text = clipboard.getData('text/plain');
+        const html = event.clipboardData.getData('text/html');
+        const text = event.clipboardData.getData('text/plain');
         if (!html && !text) return; // image or other non-text content, let Froala have it
 
         event.preventDefault();
         event.stopImmediatePropagation();
+        insertScrubbed(root, html && sanitizeClipboardHtml(html), text);
+    }
 
-        const clean = html && sanitizeClipboardHtml(html);
-        if (clean) document.execCommand('insertHTML', false, clean);
-        else document.execCommand('insertText', false, text);
+    // Insertions the browser performs itself (a drop or paste nobody intercepted)
+    // sit between beforeinput and input, so they get the same scrub. The timeout
+    // closes the watch if the insertion is cancelled and input never comes.
+    let finishNative = null;
+
+    function handleBeforeInput(event) {
+        if (!event.inputType?.startsWith('insertFrom')) return;
+        const root = event.target instanceof Element && event.target.closest(EDITOR);
+        if (!root) return;
+        finishNative?.();
+        finishNative = watchInsertion(root);
+        setTimeout(finishNative, 0);
+    }
+
+    function handleInput(event) {
+        if (inserting) return event.stopImmediatePropagation();
+        if (!event.inputType?.startsWith('insertFrom')) return;
+        finishNative?.();
+        finishNative = null;
+    }
+
+    // Froala inserts drops itself, reading the dragged HTML during this dispatch
+    // and handling moves and undo. Rather than take that over, the event's
+    // getData is swapped so Froala reads the sanitised HTML. (Froala 5.0 also
+    // offers cleanup hooks for drops, but 5.5 no longer fires them.) If the browser
+    // ends up inserting the drop itself, the beforeinput/input guard above applies.
+    function handleEditorDrop(event) {
+        const root = event.target instanceof Element && event.target.closest(EDITOR);
+        const data = event.dataTransfer;
+        if (!root || !data) return;
+        const read = data.getData.bind(data);
+        data.getData = type => {
+            const value = read(type);
+            return /html/i.test(type) && value ? sanitizeClipboardHtml(value) : value;
+        };
     }
 
     // ============================
@@ -750,5 +846,8 @@ html.fd-dark .fr-view pre { background-color: var(--fd-card-bg) !important; }
     }
 
     window.addEventListener('paste', handleEditorPaste, true);
+    window.addEventListener('drop', handleEditorDrop, true);
+    window.addEventListener('beforeinput', handleBeforeInput, true);
+    window.addEventListener('input', handleInput, true);
     refresh();
 })();
