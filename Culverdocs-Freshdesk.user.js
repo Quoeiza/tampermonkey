@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Culverdocs-Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      3.2
+// @version      3.3
 // @description  QoL improvements for the Freshdesk ticket list and editor. Status colours, urgency stripe, deadline chips, ownership and unassigned labels, quietened waiting tickets, status group headers, tag badges, summary counts with focus filters, density and subtle motion, all adjustable from a Customise panel. Auto-adapts to Freshdesk's light and dark themes. Pasted or dropped content can never bring colour into the editor; paste also drops font family and font size. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -147,7 +147,11 @@ html.fd-dark {
 .left-nav-mfe-wrapper, .left-nav-mfe { width: 240px !important; }
 .ember-light-table table { border-collapse: separate; }
 .hidden-overdue-badge, .avatar-image { display: none !important; }
-.avatar-icon.avatar-icon--rounded .avatar-block { margin-left: 9px; }
+/* The avatar moves with its wrapper, so Freshdesk's fade overlay for closed and
+   resolved tickets moves with it. The overlay is a white square, invisible on a
+   white card; it is made round and given the card colour so it fades in dark mode too. */
+.tickets__list .app-user-photo { position: relative; left: 9px; }
+.tickets__list .app-user-photo > .avatar-overlay { border-radius: 50% !important; background-color: var(--fd-card-bg) !important; }
 .current__item--active td:first-child::before { width: 0; }
 .__module-tickets__assign-to .element-flex > div:first-child { display: none; }
 .app-content-area, body { min-width: 958px; }
@@ -184,7 +188,10 @@ html[data-fd-card-style="none"] .tickets__list { background: var(--fd-card-bg) !
 .list-check-wrap { position: relative; }
 /* 17px on the left matches the 8px between checkbox and avatar, centring the avatar. */
 .list-content-wrap { padding: 16px 16px 16px 17px; }
-/* Priority, assignee and status rows, kept to the rhythm of the subject lines. */
+/* Priority, assignee and status rows, kept to the rhythm of the subject lines. The
+   column padding matches the space they get on a card whose left side runs to three
+   lines, so a shorter card (common in a wide window) never squeezes them to the edges. */
+.tickets__list .list-content--info { padding-block: 21px; }
 .tickets__list .list-content--info .list-filter > :not(:last-child) { margin-bottom: 5px; }
 .tickets__list .ticket-title-row { display: flex; align-items: center !important; gap: 0; width: 100%; margin: 0; }
 .tickets__list .ticket-title-row .muted[data-test-ticket-id] {
@@ -198,6 +205,7 @@ html[data-fd-card-style="none"] .tickets__list { background: var(--fd-card-bg) !
 
 html[data-fd-density="compact"] .tickets__list { min-height: 0; margin-bottom: 6px !important; }
 html[data-fd-density="compact"] .list-content-wrap { padding: 8px 12px 8px 17px; }
+html[data-fd-density="compact"] .tickets__list .list-content--info { padding-block: 10px; }
 html[data-fd-density="compact"] .tickets__list .list-content--info .list-filter > :not(:last-child) { margin-bottom: 3px; }
 html[data-fd-density="compact"] .wordbreak-fix { font-size: 15px; }
 html[data-fd-density="compact"] .ticket-info { padding-top: 2px; font-size: 13px; }
