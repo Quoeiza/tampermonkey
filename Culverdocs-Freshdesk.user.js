@@ -34,7 +34,7 @@
     };
     // One line per Customise panel section.
     const DEFAULTS = {
-        cardStyle: 'none', density: 'comfortable', groupHeaders: true, showTags: false,
+        cardStyle: 'gradient', density: 'comfortable', groupHeaders: true, showTags: true,
         urgentStripe: true, deadlineChips: true, customerReplies: true, highlightMine: true,
         flagUnassigned: true, quietWaiting: true, keyboardRing: true,
         summary: true,
