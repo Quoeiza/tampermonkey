@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Culverdocs-Freshdesk
+// @name         Culverdocs - Freshdesk
 // @namespace    http://culverdocs.co.uk/
-// @version      3.3
+// @version      3.4
 // @description  QoL improvements for the Freshdesk ticket list and editor. Status colours, urgency stripe, deadline chips, ownership and unassigned labels, quietened waiting tickets, status group headers, tag badges, summary counts with focus filters, density and subtle motion, all adjustable from a Customise panel. Auto-adapts to Freshdesk's light and dark themes. Pasted or dropped content can never bring colour into the editor; paste also drops font family and font size. Editor toolbar is extended with the Froala commands Freshdesk loads but never exposes.
 // @author       Lawrence Murrell
 // @match        https://culverdocs.freshdesk.com/a/tickets*
@@ -39,7 +39,7 @@
         flagUnassigned: true, quietWaiting: true, keyboardRing: true,
         summary: true,
         tagBadges: true, badgeMap: 'L1-ESC = ⚠️\nL2-ESC = 🚨',
-        motionHover: true, motionArrivals: true, motionStatus: true, motionPulse: true
+        motionHover: true, motionArrivals: true, motionPulse: true
     };
 
     // A saved value is used only if it has the default's type or is one of the
@@ -161,15 +161,13 @@ html.fd-dark {
 .ember-light-table [style*="width: 120px"] { width: 200px !important; }
 .ember-light-table [style*="width: 12vw"]  { width: 80px !important; }
 
-/* ---- Cards. --fd-status-bg is registered as a colour so it can be animated. ---- */
-@property --fd-status-bg { syntax: '<color>'; inherits: false; initial-value: transparent; }
+/* ---- Cards ---- */
 .tickets__list {
     --fd-status-bg: var(--fd-card-bg);
     display: table; position: relative; box-sizing: border-box; overflow: hidden;
     width: 99.9%; min-height: 76px; margin-bottom: 11px !important;
     background: var(--fd-card-bg); border-radius: 8px !important; box-shadow: var(--fd-card-shadow);
-    transition: opacity .2s, filter .2s, box-shadow .15s ease-out, transform .15s ease-out,
-                --fd-status-bg var(--fd-status-fade, 0s) ease;
+    transition: opacity .2s, filter .2s, box-shadow .15s ease-out, transform .15s ease-out;
 }
 .tickets__list[data-status="Open"]     { --fd-status-bg: var(--fd-status-open); }
 .tickets__list[data-status="Pending"]  { --fd-status-bg: var(--fd-status-pending); }
@@ -293,16 +291,17 @@ html[data-fd-focus="unassigned"] .tickets__list:not([data-fd-unassigned]) { opac
 /* J/K selection ring, shown only once the keyboard is in use. */
 html.fd-keyboard-ring.fd-kbd .current__item--active .tickets__list { outline: 2px solid var(--fd-accent); outline-offset: 2px; }
 
-/* ---- Motion: transform, opacity and colour only, all off under reduced motion ---- */
-html.fd-motion-status { --fd-status-fade: .5s; }
+/* ---- Motion: transform and opacity only, all off under reduced motion ---- */
 html.fd-motion-hover .tickets__list:hover { transform: translateY(-1px); box-shadow: var(--fd-card-shadow-hover); }
 @keyframes fd-arrive { from { opacity: .45; } to { opacity: 0; } }
 html.fd-motion-arrivals .tickets__list[data-fd-arrived]::after {
     content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none;
     background: var(--fd-accent); opacity: 0; animation: fd-arrive 1.8s ease-out;
 }
-@keyframes fd-pulse { 50% { opacity: .3; } }
-html.fd-motion-pulse .tickets__list[data-fd-urgent][data-fd-sla="overdue"]::before { animation: fd-pulse 2.4s ease-in-out 3; }
+/* Runs for as long as the ticket is overdue. A fixed count starts when the card
+   first renders (often off-screen or in a background tab) and is over before anyone looks. */
+@keyframes fd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+html.fd-motion-pulse.fd-urgent-stripe .tickets__list[data-fd-urgent][data-fd-sla="overdue"]::before { animation: fd-pulse 2.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
     .tickets__list, .tickets__list::before, .tickets__list::after { transition: none !important; animation: none !important; }
     .tickets__list:hover { transform: none !important; }
@@ -677,20 +676,20 @@ label.fd-row { cursor: pointer; }
 
     const PANEL = {
         'Cards': {
-            cardStyle: 'Status colour', density: 'Density',
-            groupHeaders: 'Group headers when sorted by status', showTags: "Show Freshdesk's tag rows"
+            cardStyle: 'Status Colour', density: 'Density',
+            groupHeaders: 'Show Group Headers', showTags: "Show Tags"
         },
         'Emphasis': {
-            urgentStripe: 'Red stripe on urgent open tickets', deadlineChips: 'Deadline chips',
-            customerReplies: 'Highlight customer replies', highlightMine: 'Label my tickets as You',
-            flagUnassigned: 'Flag unassigned tickets', quietWaiting: 'Quieten tickets waiting on the customer',
-            keyboardRing: 'Ring the ticket selected with J/K'
+            urgentStripe: 'Highlight urgent open tickets', deadlineChips: 'Highlight due dates & times',
+            customerReplies: 'Highlight customer replies', flagUnassigned: 'Highlight unassigned tickets',
+            keyboardRing: 'Highlight tickets using shortcuts J/K', quietWaiting: 'Fade tickets waiting for customer',
+            highlightMine: 'Label own tickets as "You"',
         },
-        'Summary': { summary: 'Counts with focus filters in the toolbar' },
-        'Tag badges': { tagBadges: 'Badges before the requester', badgeMap: 'One per line: tag = badge' },
+        'Summary': { summary: 'Show Focus Filters' },
+        'Tag Badges': { tagBadges: 'Show Badges', badgeMap: 'Define badge conditions, one per line: "TAG = BADGE"' },
         'Motion': {
             motionHover: 'Lift cards on hover', motionArrivals: 'Highlight newly arrived tickets',
-            motionStatus: 'Fade colour on status change', motionPulse: 'Pulse the stripe on overdue tickets'
+            motionPulse: 'Pulse the stripe on overdue tickets'
         }
     };
 
